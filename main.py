@@ -1,29 +1,28 @@
 """Main executable for JackShenC compiler. For usage, run "./main.py --help"."""
-
-import argparse
 import subprocess
+import argparse
 import sys
 
 from errors import error_collector, CompilerError
 from asm_gen import ASMCode, MASMCode, ASMGen
-from il_gen import ILCode, SymbolTable
+from il_gen import SymbolTable
 from myparser import Parser
-from lexer import Lexer
+from lexer import tokenize
+from il_gen import ILCode
 
 
 def main():
     """Run the main compiler script."""
-    # Each of these functions should add any issues to the global error_collector -- NOT raise them. After each stage of
-    # the compiler, compilation only proceeds if no errors were found.
+    # Each of these functions should add any issues to the global error_collector -- NOT raise them.
+    # After each stage of the compiler, compilation only proceeds if no errors were found.
 
     arguments = get_arguments()
-
-    code_lines = get_code_lines(arguments)
+    code, filename = read_file(arguments)
     if not error_collector.ok():
         error_collector.show()
         return 1
 
-    token_list = Lexer().tokenize(code_lines)
+    token_list = tokenize(code, filename)
     if not error_collector.ok():
         error_collector.show()
         return 1
@@ -39,9 +38,18 @@ def main():
         error_collector.show()
         return 1
 
+    # Display the IL generated if indicated on the command line.
+    if arguments.show_il: print(str(il_code))
+
+    # Display the tokens generated if indicated on the command line.
+    if arguments.show_tokens: print(token_list)
+
+    # Display the AST generated if indicated on the command line.
+    if arguments.show_tree: print(ast_root)
+
     asm_code, masm_code = ASMCode(), MASMCode()
-    ASMGen(il_code, asm_code, masm_code).make_asm()
-    ASMGen(il_code, asm_code, masm_code).make_masm()
+    ASMGen(il_code, asm_code, arguments).make_asm()
+    ASMGen(il_code, masm_code, arguments).make_asm()
     asm_source, masm_source = asm_code.full_code(), masm_code.full_code()
     if not error_collector.ok():
         error_collector.show()
@@ -53,7 +61,7 @@ def main():
         error_collector.show()
         return 1
 
-    masm_filename = "masm.asm"
+    masm_filename = "3-25-Python-IO-82-Shendrikov.asm"
     write_asm(masm_source, masm_filename)
     if not error_collector.ok():
         error_collector.show()
@@ -64,6 +72,7 @@ def main():
         error_collector.show()
         return 1
 
+    error_collector.show()
     return 0
 
 
@@ -73,20 +82,41 @@ def get_arguments():
     """
     parser = argparse.ArgumentParser(description="Compile C files.")
 
-    # The file name of the C file to compile. The file name gets saved to the file_name attribute of the returned object
-    # but this parameter appears as "filename" (no underscore) on the command line.
-    parser.add_argument("file_name", metavar="filename")
+    # The file name of the C file to compile.
+    parser.add_argument("filename", metavar="filename")
+
+    # Boolean flag for whether to print the generated IL
+    parser.add_argument("-show-il", help="display generated IL", dest="show_il", action="store_true")
+
+    # Boolean flag for whether to print the generated tokens
+    parser.add_argument("-show-tokens", help="display generated tokens", dest="show_tokens", action="store_true")
+
+    # Boolean flag for whether to print the generated AST
+    parser.add_argument("-show-tree", help="display generated AST", dest="show_tree", action="store_true")
+
+    # Boolean flag for whether to print register allocator performance info
+    parser.add_argument("-show-reg-alloc-perf", help="display register allocator performance info",
+                        dest="show_reg_alloc_perf", action="store_true")
+
+    # Boolean flag for whether to allocate any variables in registers
+    parser.add_argument("-variables-on-stack", help="allocate all variables on the stack",
+                        dest="variables_on_stack", action="store_true")
+
+    parser.set_defaults(show_il=False)
+    parser.set_defaults(show_tokens=False)
+    parser.set_defaults(show_tree=False)
+
     return parser.parse_args()
 
 
-def get_code_lines(arguments):
-    """Open the file(s) in arguments and return lines of code."""
+def read_file(arguments):
+    """Read the file(s) in arguments and return the file contents."""
     try:
-        with open(arguments.file_name) as c_file:
-            return [(line_text.strip(), arguments.file_name, line_num + 1) for line_num, line_text in enumerate(c_file)]
+        with open(arguments.filename) as c_file:
+            return c_file.read(), arguments.filename
     except IOError:
         descr = "could not read file: '{}'"
-        error_collector.add(CompilerError(descr.format(arguments.file_name)))
+        error_collector.add(CompilerError(descr.format(arguments.filename)))
 
 
 def write_asm(asm_source, asm_filename):
@@ -103,15 +133,23 @@ def write_asm(asm_source, asm_filename):
 
 
 def assemble_and_link(binary_name, asm_name, obj_name):
-    """Assmble and link the assembly file into an object file and binary. If the assembly/linking fails, raise exception
+    """Assemble and link the assembly file into an object file and binary. If the assembly/linking fails,
+    raise an exception.
         binary_name (str) - Name of the binary file to output.
         asm_name (str) - Name of the assembly file to read in.
         obj_name (str) - Name of the obj file to output.
     """
-    subprocess.check_call(["nasm", "-f", "elf64", "-o", obj_name, asm_name])
-    subprocess.check_call(["ld", "-dynamic-linker", "/lib64/ld-linux-x86-64.so.2",
-                           "/usr/lib/x86_64-linux-gnu/crt1.o", "/usr/lib/x86_64-linux-gnu/crti.o",
-                           "-lc", obj_name, "/usr/lib/x86_64-linux-gnu/crtn.o", "-o", binary_name])
+    try:
+        subprocess.check_call(["nasm", "-f", "elf64", "-o", obj_name, asm_name])
+    except subprocess.CalledProcessError:
+        error_collector.add(CompilerError("assembler returned non-zero status"))
+    else:
+        try:
+            subprocess.check_call(["ld", "-dynamic-linker", "/lib64/ld-linux-x86-64.so.2",
+                                   "/usr/lib/x86_64-linux-gnu/crt1.o", "/usr/lib/x86_64-linux-gnu/crti.o",
+                                   "-lc", obj_name, "/usr/lib/x86_64-linux-gnu/crtn.o", "-o", binary_name])
+        except subprocess.CalledProcessError:
+            error_collector.add(CompilerError("linker returned non-zero status"))
 
 
 if __name__ == "__main__":

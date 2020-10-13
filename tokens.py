@@ -1,50 +1,57 @@
-"""Defines a TokenKind class and Token class
-A TokenKind instance represents one of the various kinds of tokens recognized.
+"""Classes for representing tokens. A TokenKind instance represents one of the kinds of tokens recognized.
 A Token instance represents a token as produced by the lexer.
 """
 
 
 class TokenKind:
-    """A general class for defining the various known kinds of tokens, such as: {, ', ), return, int, char
-
-    We define a bunch of TokenKind objects in token_kinds.py, and treat these as const objects.
-
-        kind_id (int) - a unique ID assigned to each token
-        text_repr (str) - the way this token looks in text. Used only by the lexer to tokenize the input.
+    """Class representing the various known kinds of tokens.
+        Ex: +, -, (), !, return, int
+    There are also token kind instances for each of 'identifier' and 'number'. See token_kinds.py for a list of
+    token_kinds defined.
+        text_repr (str) - The token's representation in text, if it has a fixed representation.
     """
 
-    def __init__(self, text_repr="", kinds=None):
-        """Initializes a new TokenKind and adds it to the list of kinds passed in.
-            text_repr (str) - see class docstring.
-            kinds (List[TokenKind]) - a list of kinds to which this TokenKind is automatically added.
+    def __init__(self, text_repr="", kinds=[]):
+        """Initialize a new TokenKind and add it to `kinds`.
+            kinds (List[TokenKind]) - List of kinds to which this TokenKind is added. This is convenient when defining
+            token kinds in token_kind.py.
         """
-        if kinds is None: kinds = []
-
         self.text_repr = text_repr
         kinds.append(self)
+        kinds.sort(key=lambda kind: -len(kind.text_repr))
 
     def __str__(self):
+        """Return the representation of this token kind."""
         return self.text_repr
 
 
 class Token:
-    """A single unit element of the input. Produced by the tokenizing phase of the lexer.
-        kind (TokenKind) - the kind of this token
-        content (str) - stores additional content for some tokens:
-            1) For number tokens, stores the number itself
-            2) For identifiers, stores the identifier name
-        file_name (str) - the name of the file from which this token came. Used for error reporting.
-        line_num (int) - the line number from which this token came. Used for error reporting.
+    """Single unit element of the input as produced by the tokenizer.
+        kind (TokenKind) - Kind of this token.
+
+        content - Additional content about some tokens. For number tokens, this stores the number itself.
+        For identifiers, this stores the identifier name. For string, stores a list of its characters.
+
+        rep (str) - The string representation of this token. If not provided, the content parameter is used.
+
+        r (Range) - Range of positions that this token covers.
     """
 
-    def __init__(self, kind, content=""):
+    def __init__(self, kind, content="", rep="", r=None):
+        """Initialize this token."""
         self.kind = kind
+
         self.content = content if content else str(self.kind)
-        self.file_name = None
-        self.line_num = None
+        self.rep = rep
+        self.r = r
 
     def __eq__(self, other):
+        """Require equality of both token kind and content."""
         return self.kind == other.kind and self.content == other.content
 
-    def __str__(self):
+    def __repr__(self):
         return self.content
+
+    def __str__(self):
+        """Return the token content."""
+        return self.rep if self.rep else self.content

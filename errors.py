@@ -3,8 +3,8 @@
 
 class ErrorCollector:
     """Class that accumulates all errors and warnings encountered. We create a global instance of this class so all
-    parts of the compiler can access it and add errors to it. It's much easier than passing an instance to every
-    function that could potentially fail.
+    parts of the compiler can access it and add errors to it. This is kind of hacky, but it's much easier than passing
+    an instance to every function that could potentially fail.
     """
 
     def __init__(self):
@@ -21,7 +21,8 @@ class ErrorCollector:
 
     def show(self):
         """Display all warnings and errors."""
-        for issue in self.issues: print(issue)
+        for issue in self.issues:
+            print(issue)
 
     def clear(self):
         """Clear all warnings and errors. Intended only for testing use."""
@@ -31,6 +32,43 @@ class ErrorCollector:
 error_collector = ErrorCollector()
 
 
+class Position:
+    """Class representing a position in source code.
+        file (str) - Name of file in which this position is located.
+        line (int) - Line number in file at which this position is located.
+        col (int) - Horizontal column at which this position is located
+        full_line (str) - Full text of the line containing this position.
+    Specifically, full_line[col + 1] should be this position.
+    """
+
+    def __init__(self, file, line, col, full_line):
+        """Initialize Position object."""
+        self.file = file
+        self.line = line
+        self.col = col
+        self.full_line = full_line
+
+    def __add__(self, other):
+        """Increment Position column by one."""
+        return Position(self.file, self.line, self.col + 1, self.full_line)
+
+
+class Range:
+    """Class representing a continuous span between two positions.
+        start (Position) - start position, inclusive.
+        end (Position) - end position, inclusive.
+    """
+
+    def __init__(self, start, end=None):
+        """Initialize Range objects."""
+        self.start = start
+        self.end = end if end else start
+
+    def __add__(self, other):
+        """Add Range objects by concatenating their ranges."""
+        return Range(self.start, other.end)
+
+
 class CompilerError(Exception):
     """Class representing compile-time errors.
         message (str) - User-friendly explanation of the error. Should begin with a lowercase letter.
@@ -38,27 +76,51 @@ class CompilerError(Exception):
         line_number (int) - Line number on which the error occurred.
     """
 
-    def __init__(self, descr, file_name=None, line_num=None, warning=False):
+    def __init__(self, descr, span=None, warning=False):
         """Initialize error.
             descr (str) - Description of the error.
-            file_name (str) - File in which the error appeared. If none is provided, uses just label "JackShenC"
-            line_num (int) - Line number of the file where the error appears.
-            warning (bool) - True if this is a warning.
+            span (Range) - Range at which the error appears.
+            warning (bool) - True if this is a warning
         """
         self.descr = descr
-        self.file_name = file_name
-        self.line_num = line_num
+        self.span = span
         self.warning = warning
 
-    def __str__(self):
-        """Return a full representation of the error. The returned expression is user friendly and pretty-printable."""
+    def __str__(self):  # pragma: no cover
+        """Return a pretty-printable statement of the error. Also includes the line on which the error occurred."""
+        error_color = "\x1B[31m"
+        warn_color = "\x1B[33m"
+        reset_color = "\x1B[0m"
+        bold_color = "\033[1m"
+
+        color_code = warn_color if self.warning else error_color
         issue_type = "warning" if self.warning else "error"
-        if self.file_name and self.line_num:
-            return "{}:{}: {}: {}".format(self.file_name, self.line_num, issue_type, self.descr)
-        elif self.file_name:
-            return "{}: {}: {}".format(self.file_name, issue_type, self.descr)
+
+        # A position span is provided, and this is output to terminal.
+        if self.span:
+            # Set "indicator" to display the ^^^s and ---s to indicate the error location.
+            indicator = warn_color
+            indicator += " " * (self.span.start.col - 1)
+
+            if self.span.start.line == self.span.end.line and self.span.start.file == self.span.end.file:
+                if self.span.end.col == self.span.start.col:
+                    indicator += "^"
+                else:
+                    indicator += "-" * (self.span.end.col - self.span.start.col + 1)
+            else:
+                indicator += "-" * (len(self.span.start.full_line) - self.span.start.col + 1)
+
+            indicator += reset_color
+
+            insert = [bold_color, self.span.start.file, self.span.start.line, self.span.start.col,
+                      color_code, issue_type, reset_color, self.descr, self.span.start.full_line, indicator]
+
+            return "{}{}:{}:{}: {}{}:{} {}\n  {}\n  {}".format(*insert)
+
+        # A position span is not provided and this is output to terminal.
         else:
-            return "JackShenC: {}: {}".format(issue_type, self.descr)
+            insert = [bold_color, color_code, issue_type, reset_color, self.descr]
+            return "{}JackShenC: {}{}:{} {}".format(*insert)
 
 
 class ParserError(CompilerError):
@@ -69,12 +131,12 @@ class ParserError(CompilerError):
 
     # Options for the message_type constructor field.
     #
-    # AT generates a message like "expected semicolon at '}'",
-    # GOT generates a message like "expected semicolon, got '}'", and
-    # AFTER generates a message like "expected semicolon after '15'".
+    # AT generates a message like "expected semicolon at '}'", GOT generates a
+    # message like "expected semicolon, got '}'", and AFTER generates a message
+    # like "expected semicolon after '15'" (if possible).
     #
-    # We use AT when a token should be removed,
-    # use AFTER when a token should be to be inserted,
+    # As a very general guide, use AT when a token should be removed, use AFTER
+    # when a token should be to be inserted (esp. because of what came before),
     # and GOT when a token should be changed.
     AT = 1
     GOT = 2
@@ -96,24 +158,26 @@ class ParserError(CompilerError):
         if len(tokens) == 0:
             super().__init__("{} at beginning of source".format(message))
 
-        # If the index is too big -> always using the AFTER form
+        # If the index is too big, we're always using the AFTER form
         if index >= len(tokens):
             index = len(tokens)
             message_type = self.AFTER
-        # If the index is too small -> shouldn't use the AFTER form
+        # If the index is too small, we should not use the AFTER form
         elif index <= 0:
             index = 0
             if message_type == self.AFTER:
                 message_type = self.GOT
 
         if message_type == self.AT:
-            super().__init__("{} at '{}'".format(message, tokens[index]), tokens[index].file_name,
-                             tokens[index].line_num)
+            super().__init__("{} at '{}'".format(message, tokens[index]),
+                             tokens[index].r)
         elif message_type == self.GOT:
-            super().__init__("{}, got '{}'".format(message, tokens[index]), tokens[index].file_name,
-                             tokens[index].line_num)
+            super().__init__("{}, got '{}'".format(message, tokens[index]),
+                             tokens[index].r)
         elif message_type == self.AFTER:
-            super().__init__("{} after '{}'".format(message, tokens[index - 1]), tokens[index - 1].file_name,
-                             tokens[index - 1].line_num)
-        else:
-            raise ValueError("Unknown error message type")
+            if tokens[index - 1].r:
+                new_span = Range(tokens[index - 1].r.end + 1)
+            else:
+                new_span = None
+            super().__init__(
+                "{} after '{}'".format(message, tokens[index - 1]), new_span)

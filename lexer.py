@@ -1,201 +1,316 @@
-"""Objects for the lexing phase of the compiler. The lexing phase takes a raw text string as input from the preprocessor
-and generates a flat list of tokens present in that text string. Because there's currently no preproccesor implemented,
-the input text string is simply the file contents.
+"""Objects for the lexing phase of the compiler. The lexing phase takes the entire contents of a raw input file and
+generates a flat list of tokens present in that input file.
 """
+
 import token_kinds
-from errors import CompilerError, error_collector
+from errors import CompilerError, Position, Range, error_collector
+from token_kinds import symbol_kinds, keyword_kinds
 from tokens import Token
 from re import match
 
 
-class Lexer:
-    """Environment for running tokenize() and associated functions. Effectively, creates a closure for tokenize().
-
-        symbol_kinds (List[TokenKind]) - A list of all the specific token kinds that are not keywords. These should
-        split into a new token even when they are not surrounded by whitespace, like the plus in `a+b`. Stored in the
-        object sorted from longest to shortest.
-
-        keyword_kinds (List[TokenKind]) - A list of all the specific tokens that are not splitting. These are just the
-        keywords. Stored in the object sorted from longest to shortest.
+class Tagged:
+    """Class representing tagged characters.
+        c (char) - the character that is tagged.
+        p (Position) - position of the tagged character.
+        r (Range) - a length-one range for the character.
     """
 
-    def __init__(self):
-        """Sort the token kind lists and initialize lexer."""
-        self.symbol_kinds = sorted(
-            token_kinds.symbol_kinds, key=lambda kind: -len(kind.text_repr))
-        self.keyword_kinds = sorted(
-            token_kinds.keyword_kinds, key=lambda kind: -len(kind.text_repr))
+    def __init__(self, c, p):
+        """Initialize object."""
+        self.c = c
+        self.p = p
+        self.r = Range(p, p)
 
-    def tokenize(self, code_lines):
-        """Convert the given lines of code into a list of tokens.
-        The tokenizing algorithm proceeds through the content linearly in 1 pass, producing the list of tokens as we go.
-            content (List(tuple)) - Lines of code to tokenize, provided in the following form:
-               [("int main()", "main.c", 1),
-                ("{", "main.c", 2),
-                ("return 5;", "main.c", 3),
-                ("}", "main.c", 4)]
-            where first element is the contents of the line, the second is the file name, and the third is the line num.
 
-            returns (List[Token]) - List of the tokens parsed from the input string.
-        """
-        all_tokens = []
-        for line_with_info in code_lines:
-            # This strange logic allows tokenize_line function to be ignorant to the file-context of the line passed in.
-            try:
-                tokens = self.tokenize_line(line_with_info[0])
-            except CompilerError as e:
-                e.file_name = line_with_info[1]
-                e.line_num = line_with_info[2]
-                error_collector.add(e)
+def tokenize(code, filename):
+    """Convert given code into a flat list of Tokens.
+        lines - List of list of Tagged objects, where each embedded list is a separate line in the input program.
+        return - List of Token objects.
+    """
+    # Store tokens as they are generated
+    tokens = []
 
-            for token in tokens:
-                token.file_name = line_with_info[1]
-                token.line_num = line_with_info[2]
-                all_tokens.append(token)
-        return all_tokens
+    lines = split_to_tagged_lines(code, filename)
+    join_extended_lines(lines)
 
-    def tokenize_line(self, line):
-        """Convert the given line of code into a list of tokens. The tokens returned have no file-context dependent
-        attributes (like line number). These must be set by the caller.
-            line (str) - Line of code.
-            returns (List(Token)) - List of tokens.
-        """
-        # line[block_start:block_end] is the section of the line currently being considered for conversion into a token;
-        # this string will be called the 'block'. Everything before the block has already been tokenized, and everything
-        # after has not yet been examined
-        block_start = 0
-        block_end = 0
+    in_comment = False
+    for line in lines:
+        try:
+            line_tokens, in_comment = tokenize_line(line, in_comment)
+            tokens += line_tokens
+        except CompilerError as e:
+            error_collector.add(e)
 
-        # Stores the tokens as they are generated
-        tokens = []
+    return tokens
 
-        # While we still have characters in the line left to parse
-        while block_end < len(line):
-            # Checks if line[block_end:] starts with a symbol token kind
-            symbol_kind = self.match_symbol_kind_at(line, block_end)
-            if symbol_kind:
-                symbol_token = Token(symbol_kind)
 
-                self.add_block(line[block_start:block_end], tokens)
-                tokens.append(symbol_token)
+def split_to_tagged_lines(text, filename):
+    """Split the input text into tagged lines. No newline escaping or other preprocessing is done by this function.
+        text (str) - Input file contents as a string.
+        filename (str) - Input file name.
+        return - Tagged lines. List of list of Tagged objects, where each second order list is a separate line in the
+        input program. No newline characters.
+    """
+    lines = text.splitlines()
+    tagged_lines = []
+    for line_num, line in enumerate(lines):
+        tagged_line = []
+        for col, char in enumerate(line):
+            p = Position(filename, line_num + 1, col + 1, line)
+            tagged_line.append(Tagged(char, p))
+        tagged_lines.append(tagged_line)
 
-                block_start = block_end + len(symbol_kind.text_repr)
+        line_num += 1
+
+    return tagged_lines
+
+
+def join_extended_lines(lines):
+    """Join together any lines which end in an escaped newline. This function modifies the given lines object in place.
+        lines - List of list of Tagged objects, where each embedded list is a separate line in the input program.
+    """
+
+    i = 0
+    while i < len(lines):
+        if lines[i] and lines[i][-1].c == "\\":
+            # There is a next line to collapse into this one
+            if i + 1 < len(lines):
+                del lines[i][-1]  # remove trailing backslash
+                lines[i] += lines[i + 1]  # concatenate with next line
+                del lines[i + 1]  # remove next line
+
+                # Decrement i, so this line is checked for a new trailing backslash.
+                i -= 1
+
+            # There is no next line to collapse into this one
+            else:
+                del lines[i][-1]  # remove trailing backslash
+
+        i += 1
+
+
+def tokenize_line(line, in_comment):
+    """Tokenize the given single line.
+        line - List of Tagged objects.
+        in_comment - Whether the first character in this line is part of a C-style comment body.
+        return - List of Token objects, and boolean indicating whether the next character is part of a comment body.
+    """
+    tokens = []
+
+    # line[block_start:block_end] is the section of the line currently being considered for conversion into a token;
+    # this string will be called the 'block'. Everything before the block has already been tokenized, and everything
+    # after has not yet been examined
+    block_start = 0
+    block_end = 0
+
+    while block_end < len(line):
+        symbol_kind = match_symbol_kind_at(line, block_end)
+        next_ = match_symbol_kind_at(line, block_end + 1)
+
+        if in_comment:
+            # If next characters end the comment...
+            if symbol_kind == token_kinds.star and next_ == token_kinds.slash:
+                in_comment = False
+                block_start = block_end + 2
                 block_end = block_start
-
-            elif line[block_end].isspace():
-                self.add_block(line[block_start:block_end], tokens)
+            # Otherwise, just skip one character.
+            else:
                 block_start = block_end + 1
                 block_end = block_start
 
+        # If next characters start a comment, process previous block and set in_comment to true.
+        elif symbol_kind == token_kinds.slash and next_ == token_kinds.star:
+            add_block(line[block_start:block_end], tokens)
+            in_comment = True
+
+        # If next two characters are //, we skip the rest of this line.
+        elif symbol_kind == token_kinds.slash and next_ == token_kinds.slash:
+            break
+
+        # Skip spaces and process previous block.
+        elif line[block_end].c.isspace():
+            add_block(line[block_start:block_end], tokens)
+            block_start = block_end + 1
+            block_end = block_start
+
+        # If next character is a quote, we read the whole string as a token.
+        # We complain in the parser if there are multiple characters in a character string.
+        elif symbol_kind in {token_kinds.dquote, token_kinds.squote}:
+            if symbol_kind == token_kinds.dquote:
+                quote_str = '"'
+                kind = token_kinds.string
+                add_null = True
             else:
-                block_end += 1
+                quote_str = "'"
+                kind = token_kinds.char_string
+                add_null = False
 
-        # Flush out anything that is left in the block to the output
-        self.add_block(line[block_start:block_end], tokens)
+            chars, end = read_string(line, block_end + 1, quote_str, add_null)
+            rep = block_to_str(line[block_end:end + 1])
+            tokens.append(Token(kind, chars, rep, r=Range(line[block_end].p, line[end].p)))
 
-        return tokens
+            block_start = end + 1
+            block_end = block_start
 
-    def match_symbol_kind_at(self, content, start):
-        """Return the longest matching symbol token kind.
-            content (str) - Input string in which to search for a match.
-            start (int) - Index, inclusive, at which to start searching for a match.
-            returns (TokenType or None) - Symbol token found, or None if no token is found.
-        """
-        for symbol_kind in self.symbol_kinds:
-            if content.startswith(symbol_kind.text_repr, start):
+        # If next character is another symbol, add previous block and then add the symbol.
+        elif symbol_kind:
+            symbol_token = Token(symbol_kind, r=Range(line[block_end].p, line[block_end].p))
+
+            add_block(line[block_start:block_end], tokens)
+            tokens.append(symbol_token)
+
+            block_start = block_end + len(symbol_kind.text_repr)
+            block_end = block_start
+
+        # Include another character in the block.
+        else:
+            block_end += 1
+
+    # Flush out anything that is left in the block to the output
+    add_block(line[block_start:block_end], tokens)
+
+    return tokens, in_comment
+
+
+def block_to_str(block):
+    """Convert the given block to a string.
+        block - list of Tagged characters.
+        return - string representation of the list of Tagged characters.
+    """
+    return "".join(c.c for c in block)
+
+
+def match_symbol_kind_at(content, start):
+    """Return the longest matching symbol token kind.
+        content - List of Tagged objects in which to search for match.
+        start (int) - Index, inclusive, at which to start searching for a match.
+        returns (TokenType or None) - Symbol token found, or None if no token is found.
+    """
+    for symbol_kind in symbol_kinds:
+        try:
+            for i, c in enumerate(symbol_kind.text_repr):
+                if content[start + i].c != c:
+                    break
+            else:
                 return symbol_kind
+        except IndexError:
+            pass
+
+    return None
+
+
+def read_string(line, start, delim, null):
+    """Return a lexed string list in input characters. Also returns the index of the string end quote.
+    line[start] should be the first character after the opening quote of the string to be lexed. This function continues
+    reading characters until an unescaped closing quote is reached. The length returned is the number of input character
+    that were read, not the length of the string. The latter is the length of the lexed string list. The lexed string is
+    a list of integers, where each integer is the ASCII value (between 0 and 128) of the corresponding character in the
+    string. The returned lexed string includes a null-terminator.
+        line - List of Tagged objects for each character in the line.
+        start - Index at which to start reading the string.
+        delim - Delimiter with which the string ends, like `"` or `'`
+        null - Whether to add a null-terminator to the returned character list
+    """
+    i = start
+    chars = []
+
+    escapes = {"'": 39,
+               '"': 34,
+               "?": 63,
+               "\\": 92,
+               "a": 7,
+               "b": 8,
+               "f": 12,
+               "n": 10,
+               "r": 13,
+               "t": 9,
+               "v": 11}
+
+    while True:
+        if i >= len(line):
+            descr = "missing terminating quote"
+            raise CompilerError(descr, line[start - 1].r)
+        elif line[i].c == delim:
+            if null: chars.append(0)
+            return chars, i
+        elif i + 1 < len(line) and line[i].c == "\\" and line[i + 1].c in escapes:
+            chars.append(escapes[line[i + 1].c])
+            i += 2
+        else:
+            chars.append(ord(line[i].c))
+            i += 1
+
+
+def add_block(block, tokens):
+    """Convert block into a token if possible and add to tokens. If block is non-empty but cannot be made into a token,
+    this function records a compiler error. We don't need to check for symbol kind tokens here because they are
+    converted before they are shifted into the block.
+        block - block to convert into a token, as list of Tagged characters.
+        tokens (List[Token]) - List of the tokens so fat parsed.
+    """
+    if block:
+        range_ = Range(block[0].p, block[-1].p)
+
+        keyword_kind = match_keyword_kind(block)
+        if keyword_kind:
+            tokens.append(Token(keyword_kind, r=range_))
+            return
+
+        number_string = match_number_string(block)
+        if number_string:
+            tokens.append(Token(token_kinds.number, number_string, r=range_))
+            return
+
+        identifier_name = match_identifier_name(block)
+        if identifier_name:
+            tokens.append(Token(
+                token_kinds.identifier, identifier_name, r=range_))
+            return
+
+        descr = "unrecognized token at '{}'".format(block_to_str(block))
+        raise CompilerError(descr, range_)
+
+
+def isbinary(token):
+    """Check whether the submitted token is a binary number
+        token (int) - the int to check if it binary or not.
+    returns (boolean) - True (1) if given int is in binary representation, False (0) if not.
+    """
+    return 1 if match(r'^0[bB][01]+$', token) else 0
+
+
+def match_keyword_kind(token_repr):
+    """Find the longest keyword token kind with representation token_repr.
+        token_repr - Token representation to match exactly, as list of Tagged characters.
+        returns (TokenKind, or None) - Keyword token kind that matched.
+    """
+    token_str = block_to_str(token_repr)
+    for keyword_kind in keyword_kinds:
+        if keyword_kind.text_repr == token_str:
+            return keyword_kind
+    return None
+
+
+def match_number_string(token_repr):
+    """Return a string that represents the given constant number.
+        token_repr - List of Tagged characters.
+        returns (str, or None) - String representation of the number.
+    """
+    token_str = block_to_str(token_repr)
+    if token_str.isdigit():
+        return token_str
+    elif isbinary(token_str):
+        return token_str[2:] + 'B'
+
+
+def match_identifier_name(token_repr):
+    """Return a string that represents the name of an identifier.
+        token_repr - List of Tagged characters.
+        returns (str, or None) - String name of the identifier.
+    """
+    token_str = block_to_str(token_repr)
+    if match(r"[_a-zA-Z][_a-zA-Z0-9]*$", token_str):
+        return token_str
+    else:
         return None
-
-    def add_block(self, block, tokens):
-        """Convert block into a token if possible and add to tokens. If block is non-empty but cannot be made into a
-        token, this function records a compiler error. We don't need to check for symbol kind tokens here because they
-        are converted before they are shifted into the block.
-            block (str) - block to convert into a token.
-            tokens (List[Token]) - List of the tokens thusfar parsed.
-        """
-        if block:
-            keyword_kind = self.match_keyword_kind(block)
-            if keyword_kind:
-                tokens.append(Token(keyword_kind))
-                return
-
-            number_string = self.match_number_string(block)
-            char_string = self.match_char_string(block)
-            if number_string:
-                tokens.append(Token(token_kinds.number, number_string))
-                return
-            elif char_string:
-                tokens.append(Token(token_kinds.number, char_string))
-                return
-
-            identifier_name = self.match_identifier_name(block)
-            if identifier_name:
-                tokens.append(Token(token_kinds.identifier, identifier_name))
-                return
-
-            desc = "unrecognized token at '{}'"
-            error_collector.add(CompilerError(desc.format(block)))
-
-    def ischar(self, token):
-        """Check whether the submitted token is a char
-            token - the token to check if it in char representation or not.
-            returns (boolean) - True (1) if given token is char, False (0) if not.
-        """
-        return 1 if match(r'(\'.\')|(\".\")', token) else 0
-
-    def isbinary(self, token):
-        """Check whether the submitted token is a binary number
-            token (int) - the int to check if it binary or not.
-            returns (boolean) - True (1) if given int is in binary representation, False (0) if not.
-        """
-        return 1 if match(r'^0[bB][01]+$', token) else 0
-
-    def isnegative(self, token):
-        """Check whether the submitted token is a negative number
-            token (int) - the int to check if it negative or not.
-            returns (boolean) - True (1) if given int is in negative representation, False (0) if not.
-        """
-        return 1 if match(r'^-0[bB][01]+$', token) or match(r'^-[0-9]+$', token) else 0
-
-    def char2num(self, sym):
-        """Convert the given char into int number
-            sym (char) - the char to make into a number.
-            returns (int) - the int representation of the char.
-        """
-        return str(ord(sym[1:-1]))
-
-    # These match_* functions can safely assume the input token_repr is non-empty.
-
-    def match_keyword_kind(self, token_repr):
-        """Find the longest keyword token kind with representation token_repr.
-            token_repr (str) - Token representation to match exactly.
-            returns (TokenKind, or None) - Keyword token kind that matched.
-        """
-        for keyword_kind in self.keyword_kinds:
-            if keyword_kind.text_repr == token_repr:
-                return keyword_kind
-        return None
-
-    def match_char_string(self, token_repr):
-        """Return a string that represents the given constant character, or None if not possible
-            token_repr (str) - the string to make into a token.
-            returns (str, or None) - the string representation of the char.
-        """
-        return self.char2num(token_repr) if self.ischar(token_repr) else None
-
-    def match_number_string(self, token_repr):
-        """Return a string that represents the given constant number.
-            token_repr (str) - String to make into a token.
-            returns (str, or None) - String representation of the number.
-        """
-        if token_repr.isdigit(): return token_repr
-        elif self.isnegative(token_repr): return token_repr
-        elif self.isbinary(token_repr): return token_repr[2:] + 'B'
-
-    def match_identifier_name(self, token_repr):
-        """Return a string that represents the name of an identifier.
-            token_repr (str) - String to make into a token.
-            returns (str, or None) - String name of the identifier.
-        """
-        if match(r"[_a-zA-Z][_a-zA-Z0-9]*$", token_repr): return token_repr
-        else: return None

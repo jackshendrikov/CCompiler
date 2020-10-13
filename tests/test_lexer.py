@@ -1,106 +1,111 @@
-"""Implements tests for the Lexer class"""
-import unittest
+"""Tests for the lexer phase of the compiler."""
 
-from errors import CompilerError
-from lexer import Lexer
+import lexer
 import token_kinds
+from errors import error_collector
 from tokens import Token
-from tokens import TokenKind
+from tests.test_utils import TestUtils
 
 
-class lexer_pure_unit_tests(unittest.TestCase):
+class LexerTests(TestUtils):
+    """Tests the lexer on the actual token kinds (see token_kinds.py)."""
+
     def setUp(self):
-        self.keyword_kinds = []
-        self.symbol_kinds = []
-        self.tok = TokenKind("tok", self.keyword_kinds)
-        self.token = TokenKind("token", self.keyword_kinds)
-        self.apple = TokenKind("apple", self.symbol_kinds)
-        self.app = TokenKind("app", self.symbol_kinds)
+        """Set up lexer with the token kinds from token_kinds.py."""
+        error_collector.clear()
 
-        self.lexer = Lexer(self.symbol_kinds, self.keyword_kinds)
+    def test_empty(self):
+        """Test tokenizing an empty string."""
+        self.assertEqual(lexer.tokenize("", ""), [])
 
-    def test_token_kinds_are_unequal(self):
-        self.assertFalse(self.tok == self.token)
-        self.assertFalse(self.tok == self.apple)
-        self.assertFalse(self.tok == self.app)
-        self.assertFalse(self.token == self.apple)
-        self.assertFalse(self.token == self.app)
-        self.assertFalse(self.apple == self.app)
-
-    def test_empty_content(self):
-        self.assertEqual(self.lexer.tokenize_line(""), [])
-
-    def test_one_keyword(self):
-        self.assertEqual(self.lexer.tokenize_line("tok"), [Token(self.tok)])
-
-    def test_one_long_keyword(self):
-        self.assertEqual(self.lexer.tokenize_line("token"), [Token(self.token)])
-
-    def test_multiple_keywords(self):
-        content = "tok token tok tok token"
-        tokens = [Token(self.tok), Token(self.token), Token(self.tok),
-                  Token(self.tok), Token(self.token)]
-        self.assertEqual(self.lexer.tokenize_line(content), tokens)
-
-    def test_keywords_without_space(self):
-        with self.assertRaisesRegex(CompilerError, "unrecognized token at 'toktoken'"):
-            self.lexer.tokenize_line("toktoken")
-
-    def test_keywords_with_extra_whitespace(self):
-        content = "  tok  token  tok  tok  token  "
-        tokens = [Token(self.tok), Token(self.token), Token(self.tok), Token(self.tok), Token(self.token)]
-        self.assertEqual(self.lexer.tokenize_line(content), tokens)
-
-    def test_one_symbol(self):
-        self.assertEqual(self.lexer.tokenize_line("app"), [Token(self.app)])
-
-    def test_one_long_symbol(self):
-        self.assertEqual(self.lexer.tokenize_line("apple"), [Token(self.apple)])
-
-    def test_symbol_splits_keywords(self):
-        self.assertEqual(self.lexer.tokenize_line("tokenapptok"), [Token(self.token), Token(self.app), Token(self.tok)])
-
-    def test_multiple_symbols(self):
-        content = "appleappappappleapp"
-        tokens = [Token(self.apple), Token(self.app), Token(self.app), Token(self.apple), Token(self.app)]
-        self.assertEqual(self.lexer.tokenize_line(content), tokens)
-
-    def test_symbols_with_extra_whitespace(self):
-        content = "   apple appapp apple    app  "
-        tokens = [Token(self.apple), Token(self.app), Token(self.app), Token(self.apple), Token(self.app)]
-        self.assertEqual(self.lexer.tokenize_line(content), tokens)
-
-
-class lexer_integration_tests(unittest.TestCase):
-    """Tests the lexer on the actual token_kinds, as defined in token_kinds.py
-    """
-    def setUp(self):
-        self.lexer = Lexer(token_kinds.symbol_kinds, token_kinds.keyword_kinds)
+    def test_just_whitespace(self):
+        """Test tokenizing a string of just whitespace."""
+        self.assertEqual(lexer.tokenize("   ", ""), [])
 
     def test_number(self):
-        self.assertEqual(self.lexer.tokenize_line("10"), [Token(token_kinds.number, "10")])
+        """Test tokenizing a single number."""
+        self.assertEqual(
+            lexer.tokenize("10", ""), [Token(token_kinds.number, "10")])
+
+    def test_easy_identifier(self):
+        """Test tokenizing an identifier with only letters."""
+        self.assertEqual(
+            lexer.tokenize("identifier", ""),
+            [Token(token_kinds.identifier, "identifier")])
+
+    def test_hard_identifier(self):
+        """Test tokenizing an identifier symbols."""
+        self.assertEqual(
+            lexer.tokenize("_ident123ifier", ""),
+            [Token(token_kinds.identifier, "_ident123ifier")])
+
+    def test_extra_whitespace(self):
+        """Test tokenizing symbols with whitespace."""
+        self.assertEqual(
+            lexer.tokenize("  10    ident123ifier  ", ""),
+            [Token(token_kinds.number, "10"),
+             Token(token_kinds.identifier, "ident123ifier")])
+
+    def test_symbol_splits_keywords(self):
+        """Test that the lexer splits on symbols."""
+        self.assertEqual(
+            lexer.tokenize("ident1+ident2", ""),
+            [Token(token_kinds.identifier, "ident1"),
+             Token(token_kinds.plus),
+             Token(token_kinds.identifier, "ident2")])
+
+    def test_single_equals(self):
+        """Test tokenizing single equals."""
+        self.assertEqual(
+            lexer.tokenize("a = 10", ""),
+            [Token(token_kinds.identifier, "a"),
+             Token(token_kinds.equals),
+             Token(token_kinds.number, "10")])
+
+    def test_double_equals(self):
+        """Test tokenizing double equals."""
+        self.assertEqual(
+            lexer.tokenize("a == 10", ""),
+            [Token(token_kinds.identifier, "a"),
+             Token(token_kinds.twoequals),
+             Token(token_kinds.number, "10")])
+
+    def test_simple_string(self):
+        """Test tokenizing simple string."""
+        self.assertEqual(
+            lexer.tokenize('a "ab"', ""),
+            [Token(token_kinds.identifier, "a"),
+             Token(token_kinds.string, [97, 98, 0])])
+
+    def test_escapes(self):
+        r"""Test tokenizing strings with escapes.
+        This is testing the string:
+        " \" \\ \n \\t "
+        without the spaces.
+        """
+        self.assertEqual(
+            lexer.tokenize(r'"\"\\\n\\t"', ""),
+            [Token(token_kinds.string,
+                   [ord('"'), ord("\\"), ord("\n"), ord("\\"), ord("t"), 0]
+                   )])
+
+    def test_missing_close_quote(self):
+        """Test error on tokenizing an string missing close quotation."""
+        lexer.tokenize("\"hello", "")
+        self.assertIssues(["missing terminating quote"])
+
+    def test_bad_identifier(self):
+        """Test error on tokenizing an identifier starting with digit."""
+        lexer.tokenize("1identifier", "")
+        self.assertIssues(["unrecognized token at '1identifier'"])
 
     def test_basic_program_one_line(self):
+        """Test tokenizing an entire basic program that is one line."""
         content = "int main() { return 15; }"
         tokens = [Token(token_kinds.int_kw), Token(token_kinds.main),
-                  Token(token_kinds.open_paren), Token(token_kinds.close_paren),
+                  Token(token_kinds.open_paren),
+                  Token(token_kinds.close_paren),
                   Token(token_kinds.open_brack), Token(token_kinds.return_kw),
-                  Token(token_kinds.number, "15"), Token(token_kinds.semicolon),
-                  Token(token_kinds.close_brack)]
-        self.assertEqual(self.lexer.tokenize_line(content), tokens)
-
-    def test_basic_program_multi_line(self):
-        content = [("int main()", "main.c", 1),
-                   ("{", "main.c", 2),
-                   ("return 15;", "main.c", 3),
-                   ("}", "main.c", 4)]
-        tokens = [Token(token_kinds.int_kw), Token(token_kinds.main),
-                  Token(token_kinds.open_paren), Token(token_kinds.close_paren),
-                  Token(token_kinds.open_brack), Token(token_kinds.return_kw),
-                  Token(token_kinds.number, "15"), Token(token_kinds.semicolon),
-                  Token(token_kinds.close_brack)]
-        self.assertEqual(self.lexer.tokenize(content), tokens)
-
-
-if __name__ == "__main__":
-    unittest.main()
+                  Token(token_kinds.number, "15"),
+                  Token(token_kinds.semicolon), Token(token_kinds.close_brack)]
+        self.assertEqual(lexer.tokenize(content, ""), tokens)

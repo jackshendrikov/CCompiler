@@ -1,5 +1,167 @@
 """All of the C types recognized by the compiler."""
-from il_gen import CType
 
-char = CType(1, True)
-integer = CType(4, True)
+import token_kinds
+
+
+class CType:
+    """Represents a C type, like `int` or `char`.
+        size (int) - The result of sizeof on this type.
+    """
+
+    def __init__(self, size):
+        """Initialize type."""
+        self.size = size
+
+    def compatible(self, other):
+        """Check whether given `other` C type is compatible with self."""
+        raise NotImplementedError
+
+    def is_object(self):
+        """Check whether this is an object type."""
+        return False
+
+    def is_arith(self):
+        """Check whether this is an arithmetic type."""
+        return False
+
+    def is_integral(self):
+        """Check whether this is an integral type."""
+        return False
+
+    def is_pointer(self):
+        """Check whether this is a pointer type."""
+        return False
+
+    def is_void(self):
+        """Check whether this is a void type."""
+        return False
+
+    def is_array(self):
+        """Check whether this is an array type."""
+        return False
+
+
+class IntegerCType(CType):
+    """Represents an integer C type, like 'unsigned long' or 'bool'.
+    This class must be instantiated only once for each distinct integer C type.
+        size (int) - The result of size on this type.
+        signed (bool) - Whether this type is signed.
+    """
+
+    def __init__(self, size, signed):
+        """Initialize type."""
+        self.signed = signed
+        super().__init__(size)
+
+    def compatible(self, other):
+        """Return True iff other is a compatible type to self."""
+        return other == self
+
+    def is_object(self):
+        """Check if this is an object type."""
+        return True
+
+    def is_arith(self):
+        """Check whether this is an arithmetic type."""
+        return True
+
+    def is_integral(self):
+        """Check whether this is an integral type."""
+        return True
+
+
+class VoidCType(CType):
+    """Represents a void C type."""
+
+    def __init__(self):
+        """Initialize type."""
+        super().__init__(1)
+
+    def compatible(self, other):
+        """Return True if other is a compatible type to self."""
+        return other == self
+
+    def is_void(self):
+        """Check whether this is a void type."""
+        return True
+
+
+class PointerCType(CType):
+    """Represents a pointer C type.
+        arg (CType) - Type pointed to.
+    """
+
+    def __init__(self, arg):
+        """Initialize type."""
+        self.arg = arg
+        super().__init__(8)
+
+    def compatible(self, other):
+        """Return True if other is a compatible type to self."""
+        return other.is_pointer() and self.arg.compatible(other.arg)
+
+    def is_pointer(self):
+        """Check whether this is a pointer type."""
+        return True
+
+    def is_object(self):
+        """Check if this is an object type."""
+        return True
+
+
+class ArrayCType(CType):
+    """Represents an array C type.
+        elem (CType) - Type of each element in array.
+        n (int) - Size of array.
+    """
+
+    def __init__(self, elem, n):
+        """Initialize type."""
+        self.elem = elem
+        self.n = n
+        super().__init__(n * self.elem.size)
+
+    def compatible(self, other):
+        """Return True iff other is a compatible type to self."""
+        return other.is_array() and self.elem.compatible(other.elem) and self.n == other.n
+
+    def is_object(self):
+        """Check if this is an object type."""
+        return True
+
+    def is_array(self):
+        """Check whether this is an array type."""
+        return True
+
+
+void = VoidCType()
+
+# In our implementation, we have 1 represent true and 0 represent false.
+# We maintain this convention so that true boolean values always compare equal.
+bool_t = IntegerCType(1, False)
+
+char = IntegerCType(1, True)
+unsign_char = IntegerCType(1, False)
+
+short = IntegerCType(2, True)
+unsign_short = IntegerCType(2, False)
+
+integer = IntegerCType(4, True)
+unsign_int = IntegerCType(4, False)
+int_max = 2147483647
+int_min = -2147483648
+
+longint = IntegerCType(8, True)
+unsign_longint = IntegerCType(8, False)
+long_max = 9223372036854775807
+long_min = -9223372036854775808
+
+
+simple_types = {token_kinds.void_kw: void, token_kinds.bool_kw: bool_t, token_kinds.char_kw: char,
+                token_kinds.short_kw: short, token_kinds.int_kw: integer,  token_kinds.long_kw: longint}
+
+
+def to_unsigned(ctype):
+    """Convert the given ctype from above to the unsigned version."""
+    unsigned_map = {char: unsign_char, short: unsign_short, integer: unsign_int, longint: unsign_longint}
+    return unsigned_map[ctype]
