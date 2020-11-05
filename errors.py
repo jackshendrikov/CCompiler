@@ -94,7 +94,7 @@ class CompilerError(Exception):
         bold_color = "\033[1m"
 
         color_code = warn_color if self.warning else error_color
-        issue_type = "warning" if self.warning else "error"
+        issue_type = "Warning" if self.warning else "Error"
 
         # A position span is provided, and this is output to terminal.
         if self.span:
@@ -112,72 +112,13 @@ class CompilerError(Exception):
 
             indicator += reset_color
 
-            insert = [bold_color, self.span.start.file, self.span.start.line, self.span.start.col,
-                      color_code, issue_type, reset_color, self.descr, self.span.start.full_line, indicator]
-
-            return "{}{}:{}:{}: {}{}:{} {}\n  {}\n  {}".format(*insert)
+            return (f"Error at file: {bold_color}{self.span.start.file}{reset_color};\n"
+                    f"Position: {bold_color}{self.span.start.line} line {self.span.start.col} symbol;\n"
+                    f"{color_code}{issue_type}:{reset_color} {self.descr}\n"
+                    f"  {self.span.start.full_line}\n"
+                    f"  {indicator}")
 
         # A position span is not provided and this is output to terminal.
         else:
-            insert = [bold_color, color_code, issue_type, reset_color, self.descr]
-            return "{}JackShenC: {}{}:{} {}".format(*insert)
-
-
-class ParserError(CompilerError):
-    """Class representing parser errors.
-        amount_parsed (int) - Number of tokens successfully parsed before this error was encountered. This value is used
-        by the Parser to determine which error corresponds to the most successful parse.
-    """
-
-    # Options for the message_type constructor field.
-    #
-    # AT generates a message like "expected semicolon at '}'", GOT generates a
-    # message like "expected semicolon, got '}'", and AFTER generates a message
-    # like "expected semicolon after '15'" (if possible).
-    #
-    # As a very general guide, use AT when a token should be removed, use AFTER
-    # when a token should be to be inserted (esp. because of what came before),
-    # and GOT when a token should be changed.
-    AT = 1
-    GOT = 2
-    AFTER = 3
-
-    def __init__(self, message, index, tokens, message_type):
-        """Initialize a ParserError from the given arguments.
-            message (str) - Base message to put in the error.
-            tokens (List[Token]) - List of tokens.
-            index (int) - Index of the offending token.
-            message_type (int) - One of self.AT, self.GOT, or self.AFTER.
-        Example:
-            ParserError("unexpected semicolon", 10, [...], self.AT)
-               -> CompilerError("unexpected semicolon at ';'", ..., ...)
-               -> "main.c:10: unexpected semicolon at ';'"
-        """
-        self.amount_parsed = index
-
-        if len(tokens) == 0:
-            super().__init__("{} at beginning of source".format(message))
-
-        # If the index is too big, we're always using the AFTER form
-        if index >= len(tokens):
-            index = len(tokens)
-            message_type = self.AFTER
-        # If the index is too small, we should not use the AFTER form
-        elif index <= 0:
-            index = 0
-            if message_type == self.AFTER:
-                message_type = self.GOT
-
-        if message_type == self.AT:
-            super().__init__("{} at '{}'".format(message, tokens[index]),
-                             tokens[index].r)
-        elif message_type == self.GOT:
-            super().__init__("{}, got '{}'".format(message, tokens[index]),
-                             tokens[index].r)
-        elif message_type == self.AFTER:
-            if tokens[index - 1].r:
-                new_span = Range(tokens[index - 1].r.end + 1)
-            else:
-                new_span = None
-            super().__init__(
-                "{} after '{}'".format(message, tokens[index - 1]), new_span)
+            return (f"{bold_color}JackShenC: {color_code}{issue_type}:"
+                    f"{reset_color} {self.descr}")

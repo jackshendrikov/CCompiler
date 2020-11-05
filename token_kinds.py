@@ -5,9 +5,6 @@ from tokens import TokenKind
 keyword_kinds = []
 symbol_kinds = []
 
-# Until function definition is ready, we define `main` as a hardcoded keyword
-main = TokenKind("main", keyword_kinds)
-
 bool_kw = TokenKind("_Bool", keyword_kinds)
 char_kw = TokenKind("char", keyword_kinds)
 short_kw = TokenKind("short", keyword_kinds)
@@ -24,14 +21,23 @@ else_kw = TokenKind("else", keyword_kinds)
 auto_kw = TokenKind("auto", keyword_kinds)
 static_kw = TokenKind("static", keyword_kinds)
 extern_kw = TokenKind("extern", keyword_kinds)
+struct_kw = TokenKind("struct", keyword_kinds)
+const_kw = TokenKind("const", keyword_kinds)
 
 plus = TokenKind("+", symbol_kinds)
 minus = TokenKind("-", symbol_kinds)
 star = TokenKind("*", symbol_kinds)
 slash = TokenKind("/", symbol_kinds)
+mod = TokenKind("%", symbol_kinds)
 incr = TokenKind("++", symbol_kinds)
 decr = TokenKind("--", symbol_kinds)
 equals = TokenKind("=", symbol_kinds)
+plusequals = TokenKind("+=", symbol_kinds)
+minusequals = TokenKind("-=", symbol_kinds)
+starequals = TokenKind("*=", symbol_kinds)
+divequals = TokenKind("/=", symbol_kinds)
+modequals = TokenKind("%=", symbol_kinds)
+bitwise_and_equals = TokenKind("&=", symbol_kinds)
 twoequals = TokenKind("==", symbol_kinds)
 notequal = TokenKind("!=", symbol_kinds)
 bool_and = TokenKind("&&", symbol_kinds)
@@ -39,6 +45,8 @@ bool_or = TokenKind("||", symbol_kinds)
 bool_not = TokenKind("!", symbol_kinds)
 lt = TokenKind("<", symbol_kinds)
 gt = TokenKind(">", symbol_kinds)
+ltoe = TokenKind("<=", symbol_kinds)
+gtoe = TokenKind(">=", symbol_kinds)
 amp = TokenKind("&", symbol_kinds)
 pound = TokenKind("#", symbol_kinds)
 
@@ -54,6 +62,8 @@ close_sq_brack = TokenKind("]", symbol_kinds)
 
 comma = TokenKind(",", symbol_kinds)
 semicolon = TokenKind(";", symbol_kinds)
+dot = TokenKind(".", symbol_kinds)
+arrow = TokenKind("->", symbol_kinds)
 
 identifier = TokenKind()
 number = TokenKind()

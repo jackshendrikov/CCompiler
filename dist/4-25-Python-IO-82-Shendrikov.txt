@@ -1,0 +1,6 @@
+int main()
+{
+  int a = 3;
+  int seven = 7;
+  return a + seven;
+}

@@ -2,11 +2,11 @@
 generates a flat list of tokens present in that input file.
 """
 
-import token_kinds
 from errors import CompilerError, Position, Range, error_collector
 from token_kinds import symbol_kinds, keyword_kinds
 from tokens import Token
 from re import match
+import token_kinds
 
 
 class Tagged:
@@ -135,7 +135,7 @@ def tokenize_line(line, in_comment):
             block_end = block_start
 
         # If next character is a quote, we read the whole string as a token.
-        # We complain in the parser if there are multiple characters in a character string.
+        # We complain in the myparser if there are multiple characters in a character string.
         elif symbol_kind in {token_kinds.dquote, token_kinds.squote}:
             if symbol_kind == token_kinds.dquote:
                 quote_str = '"'
@@ -148,14 +148,26 @@ def tokenize_line(line, in_comment):
 
             chars, end = read_string(line, block_end + 1, quote_str, add_null)
             rep = block_to_str(line[block_end:end + 1])
-            tokens.append(Token(kind, chars, rep, r=Range(line[block_end].p, line[end].p)))
+            r = Range(line[block_end].p, line[end].p)
 
+            if kind == token_kinds.char_string and len(chars) == 0:
+                err = "empty character constant"
+                error_collector.add(CompilerError(err, r))
+            elif kind == token_kinds.char_string and len(chars) > 1:
+                err = "multiple characters in character constant"
+                error_collector.add(CompilerError(err, r))
+
+            tokens.append(Token(kind, chars, rep, r=r))
             block_start = end + 1
             block_end = block_start
 
         # If next character is another symbol, add previous block and then add the symbol.
         elif symbol_kind:
-            symbol_token = Token(symbol_kind, r=Range(line[block_end].p, line[block_end].p))
+            symbol_start_index = block_end
+            symbol_end_index = block_end + len(symbol_kind.text_repr) - 1
+
+            r = Range(line[symbol_start_index].p, line[symbol_end_index].p)
+            symbol_token = Token(symbol_kind, r=r)
 
             add_block(line[block_start:block_end], tokens)
             tokens.append(symbol_token)
@@ -227,6 +239,9 @@ def read_string(line, start, delim, null):
                "t": 9,
                "v": 11}
 
+    octdigits = "01234567"
+    hexdigits = "0123456789abcdefABCDEF"
+
     while True:
         if i >= len(line):
             descr = "missing terminating quote"
@@ -237,6 +252,20 @@ def read_string(line, start, delim, null):
         elif i + 1 < len(line) and line[i].c == "\\" and line[i + 1].c in escapes:
             chars.append(escapes[line[i + 1].c])
             i += 2
+        elif i + 1 < len(line) and line[i].c == "\\" and line[i + 1].c in octdigits:
+            octal = line[i + 1].c
+            i += 2
+            while i < len(line) and len(octal) < 3 and line[i].c in octdigits:
+                octal += line[i].c
+                i += 1
+            chars.append(int(octal, 8))
+        elif i + 2 < len(line) and line[i].c == "\\" and line[i + 1].c == "x" and line[i + 2].c in hexdigits:
+            hexa = line[i + 2].c
+            i += 3
+            while i < len(line) and line[i].c in hexdigits:
+                hexa += line[i].c
+                i += 1
+            chars.append(int(hexa, 16))
         else:
             chars.append(ord(line[i].c))
             i += 1
@@ -268,7 +297,7 @@ def add_block(block, tokens):
                 token_kinds.identifier, identifier_name, r=range_))
             return
 
-        descr = "unrecognized token at '{}'".format(block_to_str(block))
+        descr = f"unrecognized token at '{block_to_str(block)}'"
         raise CompilerError(descr, range_)
 
 
@@ -301,7 +330,7 @@ def match_number_string(token_repr):
     if token_str.isdigit():
         return token_str
     elif isbinary(token_str):
-        return token_str[2:] + 'B'
+        return str(int(token_str, 2))
 
 
 def match_identifier_name(token_repr):

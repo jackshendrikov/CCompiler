@@ -1,8 +1,9 @@
 """Objects for the IL->ASM stage of the compiler."""
 
+from spots import Spot, RegSpot, MemSpot, LiteralSpot
 import itertools
-from re import findall, sub
-from spots import Spot, registers
+import asm_cmds
+import spots
 
 
 class ASMCode:
@@ -13,17 +14,13 @@ class ASMCode:
 
     def __init__(self):
         """Initialize ASMCode."""
-        self.lines = []
-        self.externs = []
-        self.string_literals = []
+        self.lines, self.globals, self.data, self.string_literals, self.invokes = [], [], [], [], []
 
-    def add_command(self, command, arg1=None, arg2=None):
+    def add(self, cmd):
         """Add a command to the code.
-            command (str) - Name of the command to add.
-            arg1 (str) - First argument of the command.
-            arg2 (str) - Second argument of the command.
+            cmd (ASMCommand) - Command to add.
         """
-        self.lines.append((command, arg1, arg2))
+        self.lines.append(cmd)
 
     label_num = 0
 
@@ -39,50 +36,40 @@ class ASMCode:
         """
         self.lines.append(label)
 
-    def add_extern(self, name):
-        """Add an external name to the code.
+    def add_global(self, name):
+        """Add a name to the code as global.
             name (str) - The name to add.
         """
-        self.externs.append("\textern " + name)
+        self.globals.append(f"{name} PROTO")
 
-    def add_comment(self, comment):
-        """Add a comment in the ASM code."""
-        self.lines.append(";; " + comment)
+    def add_invoke(self, name):
+        """Add a name to the code as invoke.
+            name (str) - The name to add.
+        """
+        self.invokes.append(f"\tinvoke {name}")
+
+    def add_data(self, name, size):
+        self.data.append(f"\t{name} dd {size}")
 
     def add_string_literal(self, name, chars):
         """Add a string literal to the ASM code."""
-        self.string_literals.append(name + ":")
-        data = "db "
-        for char in chars:
-            data += str(char) + ","
-        self.string_literals.append("\t" + data[:-1])
+        self.string_literals.append(f"{name}")
+        data = ",".join(str(char) for char in chars)
+        self.string_literals.append(f"\t.byte {data}")
 
     def full_code(self):
         """Produce the full assembly code.
             return (str) - The assembly code, ready for saving to disk and assembling.
         """
 
-        def to_string(line):
-            """Convert the provided tuple/string into a string of asm code. Does not terminate with a newline."""
-            if isinstance(line, str):
-                if line[:2] == ";;":  # comment
-                    return "\t" + line
-                else:  # label
-                    return line + ":"
-            else:
-                line_str = "\t" + line[0]
-                if line[1]: line_str += " " + line[1]
-                if line[2]: line_str += ", " + line[2]
-                return line_str
-
-        header = []
+        header = self.data
         if self.string_literals:
             header += ["\tSECTION .data"] + self.string_literals + [""]
 
-        header += (["\tSECTION .text"] + self.externs +
-                   ["\tglobal main", "", "main:"])
+        header += ["\tSECTION .text"] + self.globals + ["\tglobal main", "", "main:"]
+        header += [str(line) for line in self.lines]
 
-        return "\n".join(header + [to_string(line) for line in self.lines])
+        return "\n".join(header)
 
 
 class MASMCode(ASMCode):
@@ -91,53 +78,32 @@ class MASMCode(ASMCode):
             return (str) - The assembly code, ready for saving to disk and assembling.
         """
 
-        def to_string(line):
-            """Convert the provided tuple/string into a string of asm code. Does not terminate with a newline."""
-            if isinstance(line, str):
-                if line[:2] == ";;":  # comment
-                    return "\t" + line
-                else:  # label
-                    return line + ":"
-            else:
-                line_str = "\t" + line[0]
-                if line[1]: line_str += " " + line[1]
-                if line[2]: line_str += ", " + line[2]
-                return line_str
-
-        # This code starts every masm program
-        header = ["OPTION DOTNAME",
+        header = [".386",
+                  ".model flat, stdcall",
                   "option casemap:none\n",
-                  "include \\masm64\\include\\temphls.inc",
-                  "include \\masm64\\include\\win64.inc",
-                  "include \\masm64\\include\\kernel32.inc",
-                  "include \\masm64\\include\\user32.inc",
-                  "includelib \\masm64\\lib\\kernel32.lib",
-                  "includelib \\masm64\\lib\\user32.lib\n",
-                  "OPTION PROLOGUE: none",
-                  "OPTION EPILOGUE: none\n",
-                  "Calculation PROTO\n",
-                  ".data",
-                  "Caption db \"Лабораторна работа №3\", 0",
-                  "Output db \"Результат програми: %d\", 0ah, 0ah,",
-                  "          \"Автор: Шендріков Євгеній, ІО-82\", 0",
-                  "StrBuf dq ?, 0\n",
-                  ".code",
-                  "Calculation PROC"]
+                  "include \\masm32\\include\\windows.inc",
+                  "include \\masm32\\include\\masm32.inc",
+                  "include \\masm32\\include\\kernel32.inc",
+                  "include \\masm32\\include\\user32.inc",
+                  "includelib \\masm32\\lib\\masm32.lib",
+                  "includelib \\masm32\\lib\\kernel32.lib",
+                  "includelib \\masm32\\lib\\user32.lib\n",
+                  ".data"] + self.data + ["Caption db \"Лабораторна работа №5\", 0",
+                                          "Output db \"Результат програми: %d\", 0ah, 0ah,",
+                                          "          \"Автор: Шендріков Євгеній, ІО-82\", 0",
+                                          "StrBuf dw ?, 0"]
+        if self.string_literals:
+            header += ["\t.section .data"] + self.string_literals + [""]
 
-        footer = ["Calculation ENDP\n",
-                  "main PROC",
-                  "\tsub rsp, 28h ; stack alignment 28h = 32d + 8; 8 - return",
-                  "\tmov rbp, rsp ; preserving the aligned stack value",
-                  "\tinvoke Calculation",
-                  "\tinvoke wsprintf, ADDR StrBuf, ADDR Output, eax",
-                  "\tinvoke MessageBox, 0, ADDR StrBuf, ADDR Caption, MB_ICONINFORMATION",
-                  "\tinvoke ExitProcess, 0",
-                  "main ENDP\n"
-                  "end"]
+        header += [''] + self.globals
+        header += ['\n.code'] + [str(line) for line in self.lines]
 
-        # masm_code = "\n".join(header + [to_string(line) for line in self.lines] + footer)
-        # masm_code = masm_code.replace('BYTE', 'BYTE ptr').replace('WORD', 'WORD ptr').replace('DWORD', 'DWORD ptr')
-        return "\n".join(header + [to_string(line) for line in self.lines] + footer)
+        footer = ["start:"] + ["\tinvoke main",
+                               "\tinvoke wsprintf, ADDR StrBuf, ADDR Output, eax",
+                               "\tinvoke MessageBox, 0, ADDR StrBuf, ADDR Caption, MB_ICONINFORMATION",
+                               "\tinvoke ExitProcess, 0",
+                               "end start"]
+        return "\n".join(header + footer)
 
 
 class NodeGraph:
@@ -270,7 +236,7 @@ class NodeGraph:
 
         return g
 
-    def __str__(self):  # pragma: no cover
+    def __str__(self):
         """Return this graph as a string for debugging purposes."""
         return ("Conf\n" + "\n".join(str((v, self._conf[v])) for v in self._all_nodes)
                 + "\nPref\n" + "\n".join(str((v, self._pref[v])) for v in self._all_nodes))
@@ -285,7 +251,7 @@ class ASMGen:
     """
 
     # List of registers used for allocation, sorted preferred-first
-    alloc_registers = registers
+    alloc_registers = spots.registers
 
     # List of registers used by the get_reg function.
     all_registers = alloc_registers
@@ -301,29 +267,44 @@ class ASMGen:
     def make_asm(self):
         """Generate ASM code."""
 
-        # Get global spotmap and free values
-        global_spotmap, free_values = self.get_global_spotmap()
+        global_spotmap = self.get_global_spotmap()
+
+        for func in self.il_code.commands:
+            self.asm_code.add(asm_cmds.LabelFunc(func))
+            self._make_asm(self.il_code.commands[func], global_spotmap)
+            self.asm_code.add(asm_cmds.LabelEndFunc(func))
+
+    def _make_asm(self, commands, global_spotmap):
+        """Generate ASM code for given command list."""
+
+        # Get free values
+        free_values = self.get_free_values(commands, global_spotmap)
 
         # If any variable may have its address referenced, assign it a permanent memory spot if it doesn't yet have one.
-        referenced = []
-        for command in self.il_code:
+        move_to_mem = []
+        for command in commands:
             refs = command.references().values()
             for line in refs:
                 for v in line:
                     if v not in refs:
-                        referenced.append(v)
+                        move_to_mem.append(v)
 
-        for v in referenced:
+        for v in move_to_mem:
             if v in free_values:
                 self.offset += v.ctype.size
-                global_spotmap[v] = Spot(Spot.MEM, ("rbp", -self.offset))
+                global_spotmap[v] = MemSpot(spots.RBP, -self.offset)
                 free_values.remove(v)
 
-        # Perform liveliness analysis
-        live_vars = self.get_live_vars(free_values)
+        # In addition, move all IL values of strange size to memory because they won't fit in a register.
+        for v in free_values:
+            if v.ctype.size not in {1, 2, 4, 8}:
+                move_to_mem.append(v)
+
+            # Perform liveliness analysis
+        live_vars = self.get_live_vars(commands, free_values)
 
         # Generate conflict and preference graph
-        g_bak = self.generate_graph(free_values, live_vars)
+        g_bak = self.generate_graph(commands, free_values, live_vars)
 
         spilled_nodes = []
 
@@ -346,7 +327,8 @@ class ASMGen:
 
                     if not simplified and not merged: break
 
-                if not self.freeze(g): break
+                if not self.freeze(g):
+                    break
 
             # If no nodes remain, we are done
             if not g.nodes():
@@ -358,8 +340,8 @@ class ASMGen:
                 n = max(g.nodes(), key=lambda n: len(g.confs(n)))
                 spilled_nodes.append(n)
 
-        # Move any remaining nodes from graph into removed_nodes
-        # This accounts for pseudonodes which cannot be removed in the simplify phase.
+        # Move any remaining nodes from graph into removed_nodes. This accounts for pseudonodes which cannot be removed
+        # in the simplify phase.
         while g.all_nodes():
             removed_nodes.append(g.pop(g.all_nodes()[0]))
 
@@ -369,13 +351,13 @@ class ASMGen:
         # Assign stack values to the spilled nodes
         for v in spilled_nodes:
             self.offset += v.ctype.size
-            spotmap[v] = Spot(Spot.MEM, ("rbp", -self.offset))
+            spotmap[v] = MemSpot(spots.RBP, -self.offset)
 
         # Merge global spotmap into this spotmap
         for v in global_spotmap:
             spotmap[v] = global_spotmap[v]
 
-        if self.arguments.show_reg_alloc_perf:
+        if self.arguments.show_reg_alloc_perf:  # pragma: no cover
             total_prefs = 0
             matched_prefs = 0
 
@@ -387,12 +369,11 @@ class ASMGen:
 
             print("total prefs", total_prefs)
             print("matched prefs", matched_prefs)
-
             print("total ILValues", len(g_bak.nodes()))
             print("register ILValues", len(g_bak.nodes()) - len(spilled_nodes))
 
         # Generate assembly code
-        self.generate_asm(live_vars, spotmap)
+        self.generate_asm(commands, live_vars, spotmap)
 
     def all_il_values(self):
         """Return a list of all IL values that appear in the IL code."""
@@ -405,60 +386,76 @@ class ASMGen:
         return all_values
 
     def get_global_spotmap(self):
-        """Generate global spotmap and free values.
-        Returns a tuple. First element is a dictionary mapping ILValue to spot for spots which do not need register
-        allocation, like static variables or literals. The second element is a list of the free values; the variables
-        which were not mapped in the global spotmap.
+        """Generate global spotmap and add global values to ASM.
+        This function generates a spotmap for variables which are not
+        specific to a single function. This includes literals and variables
+        with static storage duration.
         """
-
         global_spotmap = {}
-        free_values = []
-        all_values = self.all_il_values()
 
         string_literal_number = 0
-        for value in all_values:
-            if value in self.il_code.literals:
-                # If literal, assign it a preassigned literal spot
-                s = Spot(Spot.LITERAL, self.il_code.literals[value])
-                global_spotmap[value] = s
-            elif value in self.il_code.externs:
-                # If extern, assign assign spot and add the extern to asm code
-                s = Spot(Spot.MEM, (self.il_code.externs[value], 0))
-                global_spotmap[value] = s
+        local_static_number = 0
 
-                self.asm_code.add_extern(self.il_code.externs[value])
-            elif value in self.il_code.string_literals:
-                # Add the string literal representation to the output ASM.
-                name = "__strlit" + str(string_literal_number)
-                string_literal_number += 1
+        for value in self.il_code.literals:
+            s = LiteralSpot(self.il_code.literals[value])
+            global_spotmap[value] = s
 
-                self.asm_code.add_string_literal(name, self.il_code.string_literals[value])
-                global_spotmap[value] = Spot(Spot.MEM, (name, 0))
-            elif (self.arguments.variables_on_stack and
-                  value in self.il_code.variables):  # pragma: no cover
-                # If all variables are allocated on the stack
-                self.offset += value.ctype.size
-                s = Spot(Spot.MEM, ("rbp", -self.offset))
-                global_spotmap[value] = s
-            else:
-                # Value is free and needs an assignment
-                free_values.append(value)
+        for value in self.il_code.no_storage:
+            # These values can be referenced by their name in the ASM
+            s = MemSpot(self.il_code.no_storage[value])
+            global_spotmap[value] = s
 
-        return global_spotmap, free_values
+        for value in self.il_code.static_storage:
+            name = self.il_code.static_storage[value]
 
-    def get_live_vars(self, free_values):
+            # internal static values should get name mangled, in case multiple functions declare static variables with
+            # the same name
+            if value not in self.il_code.external:
+                name = f"{name}{local_static_number}"
+                local_static_number += 1
+
+            s = MemSpot(name)
+            global_spotmap[value] = s
+            self.asm_code.add_data(name, value.ctype.size)
+
+        for value in self.il_code.string_literals:
+            name = f"__strlit{string_literal_number}"
+            string_literal_number += 1
+
+            self.asm_code.add_string_literal(
+                name, self.il_code.string_literals[value])
+            global_spotmap[value] = MemSpot(name)
+
+        for value in self.il_code.external:
+            if value in self.il_code.defined:
+                self.asm_code.add_global(self.il_code.external[value])
+                self.asm_code.add_invoke(self.il_code.external[value])
+
+        return global_spotmap
+
+    @staticmethod
+    def get_free_values(commands, global_spotmap):
+        """Generate list of free values. Returns a list of the free values, variables which need allocation on the stack
+        """
+        free_values = []
+        for command in commands:
+            for value in command.inputs() + command.outputs():
+                if (value and value not in free_values
+                        and value not in global_spotmap):
+                    free_values.append(value)
+
+        return free_values
+
+    @staticmethod
+    def get_live_vars(commands, free_values):
         """Given a set of free ILValues, find when those ILValues are live.
             free_values - list of ILValues for which to perform liveliness analysis.
             returns - array mapping command indices to a tuple where first element is a list of variables live coming
             into the command and the second is a list of the variables live exiting the command.
         """
-        commands = list(self.il_code)
-
         # Preprocess all commands to get a mapping from labels to command number.
-        labels = {}
-        for i, c in enumerate(commands):
-            if c.label_name():
-                labels[c.label_name()] = i
+        labels = {c.label_name(): i for i, c in enumerate(commands)
+                  if c.label_name()}
 
         # Last iteration of live variables
         prev_live_vars = None
@@ -495,34 +492,28 @@ class ASMGen:
                         if v in cur_live:
                             cur_live.remove(v)
                         else:
-                            # If variable is defined in command but was not
-                            # live, make it live on output from this command.
-
-                            # If the output is not live, then we don't actually
-                            # need to perform this computation.
+                            # If variable is defined in command but not live, make it live on output from this command.
                             out_live.append(v)
 
                 # Variables live on input from this command
                 in_live = cur_live[:]
-
                 live_vars[i] = (in_live, out_live)
 
         return live_vars
 
-    def generate_graph(self, free_values, live_vars):
+    @staticmethod
+    def generate_graph(commands, free_values, live_vars):
         """Generate the conflict/preference graph.
             free_values - List of ILValues to include in the graph.
-            live_vars - Live range information from get_live_vars.
+            live_vars - Live range information from _get_live_vars.
         """
         g = NodeGraph(free_values)
-        for i, command in enumerate(self.il_code):
+        for i, command in enumerate(commands):
             # Variables active during input
-            for n1, n2 in itertools.combinations(live_vars[i][0], 2):
-                g.add_conflict(n1, n2)
+            for n1, n2 in itertools.combinations(live_vars[i][0], 2): g.add_conflict(n1, n2)
 
             # Variables active during output
-            for n1, n2 in itertools.combinations(live_vars[i][1], 2):
-                g.add_conflict(n1, n2)
+            for n1, n2 in itertools.combinations(live_vars[i][1], 2): g.add_conflict(n1, n2)
 
             # Relative conflict set of this command
             for n1 in command.rel_spot_conf():
@@ -543,8 +534,7 @@ class ASMGen:
                 if s not in g.all_nodes():
                     g.add_dummy_node(s)
 
-                # Add a conflict with dummy node for every variable live
-                # during both entry and exit from this command.
+                # Add a conflict with dummy node for every variable live during both entry and exit from this command.
                 for n in live_vars[i][0]:
                     if n in live_vars[i][1]:
                         g.add_conflict(n, s)
@@ -565,16 +555,12 @@ class ASMGen:
         return g
 
     def simplify_all(self, removed_nodes, g):
-        """Repeat the Simplify step until no more can be done.
-            Returns False if no simplification is done.
-            removed_nodes - stack of removed nodes to which this function adds the nodes it removes
+        """Repeat the Simplify step until no more can be done. Returns False if no simplification is done.
+            removed_nodes - stack of removed nodes to which this function adds the nodes it removes.
         """
 
         # Get nodes without preference edges
-        no_pref = []
-        for v in g.nodes():
-            if not g.prefs(v):
-                no_pref.append(v)
+        no_pref = [v for v in g.nodes() if not g.prefs(v)]
 
         # Repeat simplification until no more nodes can be removed
         did_something = False
@@ -597,10 +583,9 @@ class ASMGen:
                 return g.pop(v)
 
     def coalesce_all(self, merged_nodes, g):
-        """Repeat the coalesce step until no more can be done.
-        Returns False iff no simplification is done.
-        merged_nodes - Mapping from node to list of nodes. Every node in the
-        list of nodes has been merged into the key node.
+        """Repeat the coalesce step until no more can be done. Returns False if no simplification is done.
+            merged_nodes - Mapping from node to list of nodes. Every node in the list of nodes has been merged into the
+            key node.
         """
         did_something = False
         while True:
@@ -617,30 +602,42 @@ class ASMGen:
         return did_something
 
     def coalesce_once(self, g):
-        """Perform one iteration of the coalesce step.
-        Returns the merged pair if a merge was successfully completed. The
-        first element is the preserved node, and the second element is the
-        removed node.
+        """Perform one iteration of the coalesce step. Returns the merged pair if a merge was successfully completed.
+        The first element is the preserved node, and the second element is the removed node.
         """
         for v1 in g.nodes():
             for v2 in g.prefs(v1):
-                total_confs = len(set(g.confs(v1)) | set(g.confs(v2)))
-                if (v1 not in g.confs(v2) and
-                        total_confs < len(self.alloc_registers)):
+                # If the two nodes conflict, automatically continue.
+                if v1 in g.confs(v2):
+                    continue
 
-                    # If one is a spot, keep that in the merge
-                    if isinstance(v2, Spot):
+                total_confs = len(set(g.confs(v1)) | set(g.confs(v2)))
+
+                # If one is a spot, use a special heuristic.
+                if isinstance(v1, Spot):
+                    v1, v2 = v2, v1
+                if isinstance(v2, Spot):
+                    for T in g.confs(v1):
+                        if v2 in g.confs(T):
+                            continue
+                        if len(g.confs(T)) < len(self.alloc_registers):
+                            continue
+                        break
+                    else:
+                        # We can merge v1 into v2.
                         g.merge(v2, v1)
                         return v2, v1
-                    else:
-                        g.merge(v1, v2)
-                        return v1, v2
 
-    def freeze(self, g):
-        """Remove one preference edge.
-        This function finds two nodes, preferably of low conflict degree,
-        that are connected by a preference edge. Then, this preference edge
-        is removed from the graph. Returns false iff nothing is done.
+                # Otherwise, apply regular merging rules.
+                elif total_confs < len(self.alloc_registers):
+                    g.merge(v1, v2)
+                    return v1, v2
+
+    @staticmethod
+    def freeze(g):
+        """Remove one preference edge. This function finds two nodes, preferably of low conflict degree,
+        that are connected by a preference edge. Then, this preference edge is removed from the graph. Returns false if
+        nothing is done.
         """
 
         # Sort a list of nodes by conflict degree
@@ -653,8 +650,7 @@ class ASMGen:
         # Extract just the node pairs
         pairs = [(p[0][1], p[1][1]) for p in index_pairs]
 
-        # Now, the earlier pairs in `pairs` have lower conflict degree and
-        # are thus superior candidates for freezing.
+        # Now, the earlier pairs in `pairs` have lower conflict degree and are thus superior candidates for freezing.
         for n1, n2 in pairs:
             if n1 in g.prefs(n2):
                 g.remove_pref(n1, n2)
@@ -689,8 +685,7 @@ class ASMGen:
             n1 = removed_nodes.pop()
             regs = self.alloc_registers[::-1]
 
-            # If n1 is a Spot (i.e. dummy node), immediately assign it a
-            # register.
+            # If n1 is a Spot (i.e. dummy node), immediately assign it a register.
             if n1 in regs:
                 reg = n1
             else:
@@ -711,24 +706,29 @@ class ASMGen:
 
         return spotmap
 
-    def generate_asm(self, live_vars, spotmap):
+    def generate_asm(self, commands, live_vars, spotmap):
         """Generate assembly code."""
 
-        # Back up rbp and move rsp
-        self.asm_code.add_command("push", "rbp")
-        self.asm_code.add_command("mov", "rbp", "rsp")
-        self.asm_code.add_command("sub", "rsp", str(0))
+        max_offset = max(spot.rbp_offset() for spot in spotmap.values())
+        if max_offset % 16 != 0:
+            max_offset += 16 - max_offset % 16
+
+        # Back up ebp and move esp
+        self.asm_code.add(asm_cmds.Push(spots.RBP, None, 8))
+        self.asm_code.add(asm_cmds.Mov(spots.RBP, spots.RSP, 8))
+
+        offset_spot = LiteralSpot(str(max_offset))
+        self.asm_code.add(asm_cmds.Sub(spots.RSP, offset_spot, 8))
 
         # Generate code for each command
-        for i, command in enumerate(self.il_code):
-            self.asm_code.add_comment(type(command).__name__.upper())
+        for i, command in enumerate(commands):
+            self.asm_code.add(asm_cmds.Comment(type(command).__name__.upper()))
 
             def get_reg(pref=None, conf=None):
                 if not pref: pref = []
                 if not conf: conf = []
 
-                # Spot is bad if it is containing a variable that is live both
-                # entering and exiting this command.
+                # Spot is bad if it is containing a variable that is live both entering and exiting this command.
                 bad_vars = set(live_vars[i][0]) & set(live_vars[i][1])
                 bad_spots = set(spotmap[var] for var in bad_vars)
 
@@ -740,7 +740,7 @@ class ASMGen:
                 bad_spots |= set(conf)
 
                 for s in (pref + self.all_registers):
-                    if s.spot_type == Spot.REGISTER and s not in bad_spots:
+                    if isinstance(s, RegSpot) and s not in bad_spots:
                         return s
 
                 raise NotImplementedError("spill required for get_reg")

@@ -4,38 +4,39 @@ import argparse
 import sys
 
 from errors import error_collector, CompilerError
-from asm_gen import ASMCode, MASMCode, ASMGen
-from il_gen import SymbolTable
-from myparser import Parser
+from il_gen import ILCode, SymbolTable, Context
+from asm_gen import ASMCode, ASMGen, MASMCode
+from myparser.myparser import parse
 from lexer import tokenize
-from il_gen import ILCode
 
 
 def main():
     """Run the main compiler script."""
-    # Each of these functions should add any issues to the global error_collector -- NOT raise them.
-    # After each stage of the compiler, compilation only proceeds if no errors were found.
 
     arguments = get_arguments()
     code, filename = read_file(arguments)
     if not error_collector.ok():
         error_collector.show()
+        input("\nPress Any Key To Exit...")
         return 1
 
     token_list = tokenize(code, filename)
     if not error_collector.ok():
         error_collector.show()
+        input("\nPress Any Key To Exit...")
         return 1
 
-    ast_root = Parser(token_list).parse()
+    ast_root = parse(token_list)
     if not error_collector.ok():
         error_collector.show()
+        input("\nPress Any Key To Exit...")
         return 1
 
     il_code = ILCode()
-    ast_root.make_code(il_code, SymbolTable())
+    ast_root.make_il(il_code, SymbolTable(), Context())
     if not error_collector.ok():
         error_collector.show()
+        input("\nPress Any Key To Exit...")
         return 1
 
     # Display the IL generated if indicated on the command line.
@@ -51,39 +52,45 @@ def main():
     ASMGen(il_code, asm_code, arguments).make_asm()
     ASMGen(il_code, masm_code, arguments).make_asm()
     asm_source, masm_source = asm_code.full_code(), masm_code.full_code()
+
     if not error_collector.ok():
         error_collector.show()
+        input("\nPress Any Key To Exit...")
         return 1
 
-    asm_filename = "out.s"
-    write_asm(asm_source, asm_filename)
-    if not error_collector.ok():
-        error_collector.show()
-        return 1
-
-    masm_filename = "3-25-Python-IO-82-Shendrikov.asm"
+    masm_filename = "5-25-Python-IO-82-Shendrikov.asm"
     write_asm(masm_source, masm_filename)
     if not error_collector.ok():
         error_collector.show()
+        input("\nPress Any Key To Exit...")
         return 1
 
-    assemble_and_link("out", asm_filename, "out.o")
-    if not error_collector.ok():
-        error_collector.show()
-        return 1
+    # asm_filename = "out.s"
+    # write_asm(asm_source, asm_filename)
+    # if not error_collector.ok():
+    #     error_collector.show()
+    #     return 1
+    #
+    # assemble_and_link("out", asm_filename, "out.o")
+    # if not error_collector.ok():
+    #     error_collector.show()
+    #     return 1
 
     error_collector.show()
+    print("Token list: ", token_list)
+    input("\nThe program finished successfully!\nPress Any Key To Exit...")
+
     return 0
 
 
 def get_arguments():
-    """Get the command-line arguments. This function sets up the argument parser and returns an object storing the
+    """Get the command-line arguments. This function sets up the argument myparser and returns an object storing the
     argument values (as returned by argparse.parse_args()).
     """
     parser = argparse.ArgumentParser(description="Compile C files.")
 
     # The file name of the C file to compile.
-    parser.add_argument("filename", metavar="filename")
+    parser.add_argument("-filename", dest="filename", action="store_true")
 
     # Boolean flag for whether to print the generated IL
     parser.add_argument("-show-il", help="display generated IL", dest="show_il", action="store_true")
@@ -102,6 +109,7 @@ def get_arguments():
     parser.add_argument("-variables-on-stack", help="allocate all variables on the stack",
                         dest="variables_on_stack", action="store_true")
 
+    parser.set_defaults(filename="5-25-Python-IO-82-Shendrikov.txt")
     parser.set_defaults(show_il=False)
     parser.set_defaults(show_tokens=False)
     parser.set_defaults(show_tree=False)
