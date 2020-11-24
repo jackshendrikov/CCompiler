@@ -38,14 +38,11 @@ class LValue:
     def modable(self):
         """Return whether this is a modifiable lvalue."""
 
-        # TODO: add "is not const qualified" and "if struct/union, has no
-        # const qualified member"
         ctype = self.ctype()
         if ctype.is_array(): return False
         if ctype.is_incomplete(): return False
         if ctype.is_const(): return False
-        if ctype.is_struct_union() and any(m[1].is_const() for m in ctype.members):
-            return False
+        if ctype.is_struct() and any(m[1].is_const() for m in ctype.members): return False
 
         return True
 
@@ -127,7 +124,7 @@ class RelativeLValue(LValue):
         self.fixed_count = None
         self.fixed_block = None
 
-    def _fix_block_count(self, il_code):
+    def fix_block_count(self, il_code):
         """Convert block and count so that block is in {1, 2, 4, 8}.
         The Rel commands require that block be in {1, 2, 4, 8}. If the given block value is not in this set, we multiply
         count and divide block by an appropriate value so that block is in {1, 2, 4, 8}, and then return the new value
@@ -165,20 +162,20 @@ class RelativeLValue(LValue):
         return self._ctype
 
     def set_to(self, rvalue, il_code, r):
-        self._fix_block_count(il_code)
+        self.fix_block_count(il_code)
         check_cast(rvalue, self.ctype(), r)
         right_cast = set_type(rvalue, self.ctype(), il_code)
         il_code.add(value_cmds.SetRel(right_cast, self.base, self.fixed_block, self.fixed_count))
         return right_cast
 
     def addr(self, il_code):
-        self._fix_block_count(il_code)
+        self.fix_block_count(il_code)
         out = ILValue(PointerCType(self.ctype()))
         il_code.add(value_cmds.AddrRel(out, self.base, self.fixed_block, self.fixed_count))
         return out
 
     def val(self, il_code):
-        self._fix_block_count(il_code)
+        self.fix_block_count(il_code)
         out = ILValue(self.ctype())
         il_code.add(value_cmds.ReadRel(out, self.base, self.fixed_block, self.fixed_count))
         return out
@@ -207,7 +204,7 @@ def check_cast(il_value, ctype, span):
         return
 
     # Cast between weak compatible structs is okay
-    if ctype.is_struct_union() and il_value.ctype.is_struct_union() and il_value.ctype.weak_compat(ctype):
+    if ctype.is_struct() and il_value.ctype.is_struct() and il_value.ctype.weak_compat(ctype):
         return
 
     elif ctype.is_pointer() and il_value.ctype.is_pointer():
@@ -249,6 +246,12 @@ def set_type(il_value, ctype, il_code, output=None):
     """
     if not output and il_value.ctype.compatible(ctype): return il_value
     elif output == il_value: return il_value
+    elif not output and il_value.literal:
+        output = ILValue(ctype)
+        if ctype.is_integral(): val = shift_into_range(il_value.literal.val, ctype)
+        else: val = il_value.literal.val
+        il_code.register_literal_var(output, val)
+        return output
     else:
         if not output: output = ILValue(ctype)
         il_code.add(value_cmds.Set(output, il_value))
@@ -311,3 +314,20 @@ def get_size(ctype, num, il_code):
     il_code.add(math_cmds.Mult(total, long_num, size))
 
     return total
+
+
+def shift_into_range(val, ctype):
+    """Shift a numerical value into range for given integral ctype."""
+
+    if ctype.signed:
+        max_val = 1 << (ctype.size * 8 - 1)
+        span = 2 * max_val
+    else:
+        max_val = 1 << ctype.size * 8
+        span = max_val
+
+    val = val % span
+    if val >= max_val:
+        val -= span
+
+    return val

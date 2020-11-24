@@ -18,7 +18,7 @@ class CType:
         # Required because casting to bool is special in C11.
         self._bool = False
 
-        # Required for super hacky struct trick, see the weak_compat function for the struct.
+        # Required for struct trick, see the weak_compat function for the struct.
         self._orig = self
 
     def weak_compat(self, other):
@@ -67,8 +67,8 @@ class CType:
         """Check whether this is an array type."""
         return False
 
-    def is_struct_union(self):
-        """Checke whether this has struct or union type."""
+    def is_struct(self):
+        """Check whether this has struct type."""
         return False
 
     def make_unsigned(self):
@@ -239,7 +239,7 @@ class FunctionCType(CType, ABC):
         super().__init__(1)
 
     def weak_compat(self, other):
-        """Return True iff other is a compatible type to self."""
+        """Return True if other is a compatible type to self."""
 
         if not other.is_function(): return False
         elif not self.ret.compatible(other.ret): return False
@@ -289,8 +289,8 @@ class StructCType(CType, ABC):
         """Check whether this is an object type."""
         return True
 
-    def is_struct_union(self):
-        """Check whether this has struct or union type."""
+    def is_struct(self):
+        """Check whether this has struct type."""
         return True
 
     def get_offset(self, member):
@@ -318,6 +318,7 @@ bool_t._bool = True
 
 char = IntegerCType(1, True)
 unsign_char = IntegerCType(1, False)
+unsign_char_max = 255
 
 short = IntegerCType(2, True)
 unsign_short = IntegerCType(2, False)

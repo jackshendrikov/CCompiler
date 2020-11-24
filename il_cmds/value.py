@@ -2,13 +2,13 @@
 
 from spots import RegSpot, MemSpot, LiteralSpot
 from il_cmds.base import ILCommand
-from abc import ABC
+from abc import ABC, ABCMeta
 import asm_cmds
 import ctypes
 import spots
 
 
-class _ValueCmd(ILCommand, ABC):
+class ValueCmd(ILCommand, ABC):
     """Abstract base class for value commands. This class defines a helper function for moving data from one location
     to another.
     """
@@ -22,21 +22,18 @@ class _ValueCmd(ILCommand, ABC):
         # number of mov operations emitted for struct copying.
         shift = 0
         while shift < size:
-            reg_size = self._reg_size(size - shift)
+            reg_size = self.reg_size(size - shift)
             start_spot = start_spot.shift(shift)
             target_spot = target_spot.shift(shift)
 
-            if isinstance(start_spot, LiteralSpot):
-                reg = start_spot
-            elif reg != start_spot:
-                asm_code.add(asm_cmds.Mov(reg, start_spot, reg_size))
+            if isinstance(start_spot, LiteralSpot): reg = start_spot
+            elif reg != start_spot: asm_code.add(asm_cmds.Mov(reg, start_spot, reg_size))
 
-            if reg != target_spot:
-                asm_code.add(asm_cmds.Mov(target_spot, reg, reg_size))
+            if reg != target_spot: asm_code.add(asm_cmds.Mov(target_spot, reg, reg_size))
 
             shift += reg_size
 
-    def _reg_size(self, size):
+    def reg_size(self, size):
         """Return largest register size that does not overfit given size."""
         reg_sizes = [8, 4, 2, 1]
         for reg_size in reg_sizes:
@@ -55,7 +52,7 @@ class LoadArg(ILCommand):
            LoadArg(b, 1)
         in order to load the first function argument into the variable a and second function argument into variable b.
     """
-    arg_regs = [spots.RDI, spots.RSI, spots.RDX, spots.RCX]
+    arg_regs = [spots.EDI, spots.ESI, spots.EDX, spots.ECX]
 
     def __init__(self, output, arg_num):
         self.output = output
@@ -70,18 +67,15 @@ class LoadArg(ILCommand):
     def clobber(self):
         return [self.arg_reg]
 
-    def abs_spot_pref(self):
+    def abs_spot_preference(self):
         return {self.output: [self.arg_reg]}
 
     def make_asm(self, spotmap, home_spots, get_reg, asm_code):
-        if spotmap[self.output] == self.arg_reg:
-            return
-        else:
-            asm_code.add(asm_cmds.Mov(
-                spotmap[self.output], self.arg_reg, self.output.ctype.size))
+        if spotmap[self.output] == self.arg_reg: return
+        else: asm_code.add(asm_cmds.Mov(spotmap[self.output], self.arg_reg, self.output.ctype.size))
 
 
-class Set(_ValueCmd):
+class Set(ValueCmd):
     """SET - sets output IL value to arg IL value.
     SET converts between all scalar types, so the output and arg IL values need not have the same type if both are
     scalar types. If either one is a struct type, the other must be the same struct type.
@@ -97,12 +91,12 @@ class Set(_ValueCmd):
     def outputs(self):
         return [self.output]
 
-    def rel_spot_pref(self):
+    def rel_spot_preference(self):
         return {self.output: [self.arg]}
 
     def make_asm(self, spotmap, home_spots, get_reg, asm_code):
         if self.output.ctype == ctypes.bool_t:
-            return self._set_bool(spotmap, get_reg, asm_code)
+            return self.set_bool(spotmap, get_reg, asm_code)
 
         elif isinstance(spotmap[self.arg], LiteralSpot):
             out_spot = spotmap[self.output]
@@ -114,42 +108,33 @@ class Set(_ValueCmd):
             if spotmap[self.output] == spotmap[self.arg]:
                 return
 
-            if isinstance(spotmap[self.output], RegSpot):
-                r = spotmap[self.output]
-            elif isinstance(spotmap[self.arg], RegSpot):
-                r = spotmap[self.arg]
-            else:
-                r = get_reg()
+            if isinstance(spotmap[self.output], RegSpot): r = spotmap[self.output]
+            elif isinstance(spotmap[self.arg], RegSpot): r = spotmap[self.arg]
+            else: r = get_reg()
 
-            self.move_data(spotmap[self.output], spotmap[self.arg],
-                           self.output.ctype.size, r, asm_code)
+            self.move_data(spotmap[self.output], spotmap[self.arg], self.output.ctype.size, r, asm_code)
 
         else:
             r = get_reg([spotmap[self.output], spotmap[self.arg]])
 
             # Move from arg_asm -> r_asm
             if self.arg.ctype.signed:
-                asm_code.add(asm_cmds.Mov(r, spotmap[self.arg], 4))
+                asm_code.add(asm_cmds.Movsx(r, spotmap[self.arg], self.output.ctype.size, self.arg.ctype.size))
             elif self.arg.ctype.size == 4:
                 asm_code.add(asm_cmds.Mov(r, spotmap[self.arg], 4))
             else:
-                asm_code.add(asm_cmds.Mov(r, spotmap[self.arg], 4))
+                asm_code.add(asm_cmds.Movzx(r, spotmap[self.arg], self.output.ctype.size, self.arg.ctype.size))
 
             # If necessary, move from r_asm -> output_asm
-            if r != spotmap[self.output]:
-                asm_code.add(asm_cmds.Mov(spotmap[self.output],
-                                          r, self.output.ctype.size))
+            if r != spotmap[self.output]: asm_code.add(asm_cmds.Mov(spotmap[self.output], r, self.output.ctype.size))
 
-    def _set_bool(self, spotmap, get_reg, asm_code):
+    def set_bool(self, spotmap, get_reg, asm_code):
         """Emit code for SET command if arg is boolean type."""
-        # When any scalar value is converted to _Bool, the result is 0 if the
-        # value compares equal to 0; otherwise, the result is 1
 
         # If arg_asm is a LITERAL, move to register.
         if isinstance(spotmap[self.arg], LiteralSpot):
             r = get_reg([], [spotmap[self.output]])
-            asm_code.add(
-                asm_cmds.Mov(r, spotmap[self.arg], self.arg.ctype.size))
+            asm_code.add(asm_cmds.Mov(r, spotmap[self.arg], self.arg.ctype.size))
             arg_spot = r
         else:
             arg_spot = spotmap[self.arg]
@@ -194,9 +179,9 @@ class AddrOf(ILCommand):
             asm_code.add(asm_cmds.Mov(spotmap[self.output], r, size))
 
 
-class ReadAt(_ValueCmd):
+class ReadAt(ValueCmd):
     """Reads value at given address.
-        `addr` must have type pointer to the type of `output`
+        `addr` must have type pointer to the type of `output`.
     """
 
     def __init__(self, output, addr):
@@ -209,32 +194,28 @@ class ReadAt(_ValueCmd):
     def outputs(self):
         return [self.output]
 
-    def indir_read(self):
+    def indirect_read(self):
         return [self.addr]
 
     def make_asm(self, spotmap, home_spots, get_reg, asm_code):
         addr_spot = spotmap[self.addr]
         output_spot = spotmap[self.output]
 
-        if isinstance(addr_spot, RegSpot):
-            addr_r = addr_spot
+        if isinstance(addr_spot, RegSpot): addr_r = addr_spot
         else:
             addr_r = get_reg([], [output_spot])
             asm_code.add(asm_cmds.Mov(addr_r, addr_spot, 8))
 
         indir_spot = MemSpot(addr_r)
-        if isinstance(output_spot, RegSpot):
-            temp_reg = output_spot
-        else:
-            temp_reg = get_reg([], [addr_r])
+        if isinstance(output_spot, RegSpot): temp_reg = output_spot
+        else: temp_reg = get_reg([], [addr_r])
 
-        self.move_data(output_spot, indir_spot, self.output.ctype.size,
-                       temp_reg, asm_code)
+        self.move_data(output_spot, indir_spot, self.output.ctype.size, temp_reg, asm_code)
 
 
-class SetAt(_ValueCmd):
+class SetAt(ValueCmd):
     """Sets value at given address.
-        `addr` must have type pointer to the type of `val`
+        `addr` must have type pointer to the type of `val`.
     """
 
     def __init__(self, addr, val):
@@ -247,7 +228,7 @@ class SetAt(_ValueCmd):
     def outputs(self):
         return []
 
-    def indir_write(self):
+    def indirect_write(self):
         return [self.addr]
 
     def make_asm(self, spotmap, home_spots, get_reg, asm_code):
@@ -260,75 +241,71 @@ class SetAt(_ValueCmd):
             addr_r = get_reg([], [value_spot])
             asm_code.add(asm_cmds.Mov(addr_r, addr_spot, 8))
 
-        indir_spot = MemSpot(addr_r)
-        if isinstance(value_spot, RegSpot):
-            temp_reg = value_spot
-        else:
-            temp_reg = get_reg([], [addr_r])
+        indirect_spot = MemSpot(addr_r)
+        if isinstance(value_spot, RegSpot): temp_reg = value_spot
+        else: temp_reg = get_reg([], [addr_r])
 
-        self.move_data(indir_spot, value_spot, self.val.ctype.size,
-                       temp_reg, asm_code)
+        self.move_data(indirect_spot, value_spot, self.val.ctype.size, temp_reg, asm_code)
 
 
-class _RelCommand(_ValueCmd):
+class RelCommand(ValueCmd, metaclass=ABCMeta):
     """Parent class for the relative commands."""
 
-    def __init__(self, val, base, chunk, count):
+    def __init__(self, val, base, block, count):
         self.val = val
         self.base = base
-        self.chunk = chunk
+        self.block = block
         self.count = count
 
         # Keep track of which registers have been used from a call to get_reg so we don't accidentally reuse them.
-        self._used_regs = []
+        self.used_regs = []
 
     def get_rel_spot(self, spotmap, get_reg, asm_code):
         """Get a relative spot for the relative value."""
 
         # If there's no count, we only need to shift by the chunk
         if not self.count:
-            return spotmap[self.base].shift(self.chunk)
+            return spotmap[self.base].shift(self.block)
 
         if isinstance(spotmap[self.count], LiteralSpot) or isinstance(spotmap[self.count], RegSpot):
-            return spotmap[self.base].shift(self.chunk, spotmap[self.count])
+            return spotmap[self.base].shift(self.block, spotmap[self.count])
 
         # Otherwise, move count to a register.
-        r = get_reg([], [spotmap[self.val]] + self._used_regs)
-        self._used_regs.append(r)
+        r = get_reg([], [spotmap[self.val]] + self.used_regs)
+        self.used_regs.append(r)
 
         count_size = self.count.ctype.size
         asm_code.add(asm_cmds.Mov(r, spotmap[self.count], count_size))
 
-        return spotmap[self.base].shift(self.chunk, r)
+        return spotmap[self.base].shift(self.block, r)
 
     def get_reg_spot(self, reg_val, spotmap, get_reg):
         """Get a register or literal spot for self.reg_val."""
 
-        if (isinstance(spotmap[reg_val], LiteralSpot) or
-             isinstance(spotmap[reg_val], RegSpot)):
+        if isinstance(spotmap[reg_val], LiteralSpot) or isinstance(spotmap[reg_val], RegSpot):
             return spotmap[reg_val]
 
-        val_spot = get_reg([], [spotmap[self.count]] + self._used_regs)
-        self._used_regs.append(val_spot)
+        val_spot = get_reg([], [spotmap[self.count]] + self.used_regs)
+        self.used_regs.append(val_spot)
         return val_spot
 
 
-class SetRel(_RelCommand):
+class SetRel(RelCommand):
     """Sets value relative to given object.
+        val - ILValue representing the value to set at given location.
 
-    val - ILValue representing the value to set at given location.
+        base - ILValue representing the base object. Note this is the base object itself, not the address of the base
+        object.
 
-    base - ILValue representing the base object. Note this is the base object itself, not the address of the base object.
+        block - A Python integer representing the size of each chunk of offset.
 
-    chunk - A Python integer representing the size of each chunk of offset
+        count - If provided, a 64-bit integral ILValue representing the number of blocks of offset. If this value is
+        provided, then `block` must be in {1, 2, 4, 8}.
 
-    count - If provided, a 64-bit integral ILValue representing the number of chunks of offset. If this value is
-    provided, then `chunk` must be in {1, 2, 4, 8}.
-
-    In summary, if `count` is provided, then the address of the object represented by this LValue is:
-        &base + chunk * count
-    and if `count` is not provided, the address is just
-        &base + chunk
+        In summary, if `count` is provided, then the address of the object represented by this LValue is:
+            &base + block * count
+        and if `count` is not provided, the address is just
+            &base + block
     """
 
     def __init__(self, val, base, chunk=0, count=None):
@@ -336,10 +313,8 @@ class SetRel(_RelCommand):
         self.val = val
 
     def inputs(self):
-        if self.count:
-            return [self.val, self.base, self.count]
-        else:
-            return [self.base, self.val]
+        if self.count: return [self.val, self.base, self.count]
+        else: return [self.base, self.val]
 
     def outputs(self):
         return []
@@ -358,7 +333,7 @@ class SetRel(_RelCommand):
         self.move_data(rel_spot, spotmap[self.val], val_size, reg, asm_code)
 
 
-class AddrRel(_RelCommand):
+class AddrRel(RelCommand):
     """Gets the address of a location relative to a given object. For further documentation, see SetRel.
     """
     def __init__(self, output, base, chunk=0, count=None):
@@ -382,14 +357,11 @@ class AddrRel(_RelCommand):
         out_spot = self.get_reg_spot(self.output, spotmap, get_reg)
         asm_code.add(asm_cmds.Lea(out_spot, rel_spot))
 
-        if out_spot != spotmap[self.output]:
-            asm_code.add(asm_cmds.Mov(spotmap[self.output], out_spot, 8))
+        if out_spot != spotmap[self.output]: asm_code.add(asm_cmds.Mov(spotmap[self.output], out_spot, 8))
 
 
-class ReadRel(_RelCommand):
-    """Reads the value at a location relative to a given object.
-    For further documentation, see SetRel.
-    """
+class ReadRel(RelCommand):
+    """Reads the value at a location relative to a given object. For further documentation, see SetRel."""
 
     def __init__(self, output, base, chunk=0, count=None):
         super().__init__(output, base, chunk, count)
@@ -405,8 +377,7 @@ class ReadRel(_RelCommand):
         return {None: [self.base]}
 
     def make_asm(self, spotmap, home_spots, get_reg, asm_code):
-        if not isinstance(spotmap[self.base], MemSpot):
-            raise NotImplementedError("expected base in memory spot")
+        if not isinstance(spotmap[self.base], MemSpot): raise NotImplementedError("expected base in memory spot")
 
         rel_spot = self.get_rel_spot(spotmap, get_reg, asm_code)
         reg = self.get_reg_spot(self.output, spotmap, get_reg)

@@ -25,7 +25,7 @@ class ILCommand:
         """
         return []
 
-    def rel_spot_conf(self):
+    def rel_spot_conflict(self):
         """Return the relative conflict list of this command.
 
         This function returns a dictionary mapping an ILValue to a list of ILValues. If this contains a key value pair
@@ -34,7 +34,7 @@ class ILCommand:
         """
         return {}
 
-    def abs_spot_conf(self):
+    def abs_spot_conflict(self):
         """Return the absolute conflict list of this command.
 
         This function returns a dictionary mapping an ILValue to a list of spots. If this contains a key value pair
@@ -42,7 +42,7 @@ class ILCommand:
         """
         return {}
 
-    def rel_spot_pref(self):
+    def rel_spot_preference(self):
         """Return the relative spot preference list (RSPL) for this command.
 
         A RSPL is a dictionary mapping an ILValue to a list of ILValues. For each key k in the RSPL, the register
@@ -52,7 +52,7 @@ class ILCommand:
         """
         return {}
 
-    def abs_spot_pref(self):
+    def abs_spot_preference(self):
         """Return the absolute spot preference list (ASPL) for this command.
 
         An ASPL is a dictionary mapping an ILValue to a list of Spots. For each key k in ASPL, the register allocator
@@ -73,7 +73,7 @@ class ILCommand:
         """
         return {}
 
-    def indir_write(self):
+    def indirect_write(self):
         """Return list of values that may be dereferenced for indirect write.
 
         For example, suppose this list is [t1, t2]. Then, this command may be changing the value of the ILValue pointed
@@ -81,7 +81,7 @@ class ILCommand:
         """
         return []
 
-    def indir_read(self):
+    def indirect_read(self):
         """Return list of values that may be dereferenced for indirect read.
 
         For example, suppose this list is [t1, t2]. Then, this command may be reading the value of the ILValue pointed
@@ -100,26 +100,31 @@ class ILCommand:
     def make_asm(self, spotmap, home_spots, get_reg, asm_code):
         """Generate assembly code for this command.
 
-        spotmap - Dictionary mapping every input and output ILValue to a spot.
+            spotmap - Dictionary mapping every input and output ILValue to a spot.
 
-        home_spots - Dictionary mapping every ILValue that appears in any of self.references().values() to a memory spot
-        This is used for commands which need the address of an ILValue.
+            home_spots - Dictionary mapping every ILValue that appears in any of self.references().values() to a memory
+            spot. This is used for commands which need the address of an ILValue.
 
-        get_reg - Function to get a usable register. Accepts two arguments, first is a list of Spot preferences, and
-        second is a list of unacceptable spots. This function returns a register which is not in the list of
-        unacceptable spots and can be clobbered. Note this could be one of the registers the input is stored in, if the
-        input ILValues are not being used after this command executes.
+            get_reg - Function to get a usable register. Accepts two arguments, first is a list of Spot preferences, and
+            second is a list of unacceptable spots. This function returns a register which is not in the list of
+            unacceptable spots and can be clobbered. Note this could be one of the registers the input is stored in, if
+            the input ILValues are not being used after this command executes.
 
-        asm_code - ASMCode object to add code to
+            asm_code - ASMCode object to add code to.
         """
         raise NotImplementedError
 
-    def _is_imm(self, spot):
-        """Return True iff given spot is an immediate operand."""
+    @staticmethod
+    def is_immediate(spot):
+        """Return True if given spot is an immediate operand."""
         return isinstance(spot, LiteralSpot)
 
-    def _is_imm64(self, spot):
-        """Return True iff given spot is a 64-bit immediate operand."""
-        return (isinstance(spot, LiteralSpot) and
-                (int(spot.detail) > ctypes.int_max or
-                 int(spot.detail) < ctypes.int_min))
+    def is_immediate8(self, spot):
+        """Return True if given spot is a 8-bit immediate operand."""
+        return self.is_immediate(spot) and int(spot.detail) < ctypes.unsign_char_max
+
+    @staticmethod
+    def is_immediate64(spot):
+        """Return True if given spot is a 64-bit immediate operand."""
+        return (isinstance(spot, LiteralSpot) and (int(spot.detail) > ctypes.int_max or
+                                                   int(spot.detail) < ctypes.int_min))

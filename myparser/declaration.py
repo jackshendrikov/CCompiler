@@ -1,7 +1,8 @@
 """Parser logic that parses declaration nodes."""
 
-from myparser.utils import (add_range, ParserError, match_token, token_is, raise_error, log_error)
-from myparser.expression import parse_assignment
+from myparser.utils import (add_range, ParserError, match_token, token_is, raise_error, log_error, token_in)
+from errors import error_collector, CompilerError
+from myparser.expression import parse_expression
 import tree.decl_tree as decl_nodes
 import tree.tree as nodes
 import myparser.utils as p
@@ -11,17 +12,16 @@ import ctypes
 
 @add_range
 def parse_func_definition(index):
-    """Parse a function definition."""
+    """Parse a function definition. This function parses all parts of the function definition, from the declaration
+    specifiers to the end of the function definition body. """
 
     specs, index = parse_decl_specifiers(index)
-    end = find_decl_end(index)
-    decl = parse_declarator(index, end)
-    range = p.tokens[index].r + p.tokens[end - 1].r
+    decl, index = parse_declarator(index)
 
     from myparser.statement import parse_compound_statement
-    body, index = parse_compound_statement(end)
+    body, index = parse_compound_statement(index)
 
-    root = decl_nodes.Root(specs, [decl], [None], [range])
+    root = decl_nodes.Root(specs, [decl])
     return nodes.Declaration(root, body), index
 
 
@@ -33,6 +33,41 @@ def parse_declaration(index):
     """
     node, index = parse_decls_inits(index)
     return nodes.Declaration(node), index
+
+
+@add_range
+def parse_declarator(index, is_typedef=False):
+    """Parse the tokens that comprise a declarator.
+
+    A declarator is the part of a declaration that comes after the declaration specifiers (int, static, etc.) but before
+    any initializers. For example, in `int extern func()` the declarator is `func()`.
+
+    This function parses both declarators and abstract declarators. For abstract declarators, the Identifier node at the
+    leaf of the generated tree has the identifier None. If you want to parse an abstract declarator only, and produce an
+    error if the result is a non-abstract declarator, use the parse_abstract_declarator function instead.
+
+    Returns a decl_nodes.Node and index.
+    """
+    end = find_decl_end(index)
+    return _parse_declarator(index, end, is_typedef), end
+
+
+@add_range
+def parse_abstract_declarator(index):
+    """Parse an abstract declarator into a decl_nodes.Node. This function saves a CompilerError if the parsed entity is
+    a declarator, rather than an abstract declarator.
+    """
+    root, index = parse_declarator(index)
+    node = root
+    while not isinstance(node, decl_nodes.Identifier):
+        node = node.child
+
+    if node.identifier:
+        # add error to the error_collector because more of a semantic error than a parsing error
+        err = "expected abstract declarator, but identifier name was provided"
+        error_collector.add(CompilerError(err, node.identifier.r))
+
+    return root, index
 
 
 def parse_decls_inits(index, parse_inits=True):
@@ -47,19 +82,19 @@ def parse_decls_inits(index, parse_inits=True):
 
     # If declaration specifiers are followed directly by semicolon
     if token_is(index, token_kinds.semicolon):
-        return decl_nodes.Root(specs, [], [], []), index + 1
+        return decl_nodes.Root(specs, []), index + 1
 
-    decls = []
-    ranges = []
-    inits = []
+    is_typedef = any(tok.kind == token_kinds.typedef_kw for tok in specs)
+
+    decls, inits = [], []
 
     while True:
-        end = find_decl_end(index)
-        decls.append(parse_declarator(index, end))
-        ranges.append(p.tokens[index].r + p.tokens[end - 1].r)
+        node, index = parse_declarator(index, is_typedef)
+        decls.append(node)
 
-        index = end
         if token_is(index, token_kinds.equals) and parse_inits:
+            # Parse initializer expression
+            from myparser.expression import parse_assignment
             expr, index = parse_assignment(index + 1)
             inits.append(expr)
         else:
@@ -73,41 +108,67 @@ def parse_decls_inits(index, parse_inits=True):
 
     index = match_token(index, token_kinds.semicolon, ParserError.AFTER)
 
-    node = decl_nodes.Root(specs, decls, inits, ranges)
+    node = decl_nodes.Root(specs, decls, inits)
     return node, index
 
 
-def parse_decl_specifiers(index):
+def parse_decl_specifiers(index, spec_qual=False):
     """Parse a declaration specifier.
-
-    Examples: int / const char
-
+        Examples: int / const char
     The returned `specs` list may contain two types of elements: tokens and Node objects. A Node object will be included
-    for a struct or union declaration, and a token for all other declaration specifiers.
+    for a struct declaration, and a token for all other declaration specifiers.
     """
-    decl_specifiers = (list(ctypes.simple_types.keys()) + [token_kinds.signed_kw, token_kinds.unsigned_kw,
-                                                           token_kinds.auto_kw, token_kinds.static_kw,
-                                                           token_kinds.extern_kw, token_kinds.const_kw])
+    type_specs = set(ctypes.simple_types.keys())
+    type_specs |= {token_kinds.signed_kw, token_kinds.unsigned_kw}
+
+    type_quals = {token_kinds.const_kw}
+
+    storage_specs = {token_kinds.auto_kw, token_kinds.static_kw, token_kinds.extern_kw, token_kinds.typedef_kw}
 
     specs = []
-    matching = True
-    while matching:
-        matching = False
 
+    # The type specifier class, either SIMPLE, STRUCT, or TYPEDEF, represents the allowed kinds of type specifiers.
+    # Once the first specifier is parsed, the type specifier class is set. If the type specifier class is set to STRUCT
+    # or TYPEDEF, no further type specifiers are permitted in the type specifier list. If it is set to  SIMPLE, more
+    # simple type specifiers are permitted. This is important for typedef parsing.
+
+    SIMPLE = 1
+    STRUCT = 2
+    TYPEDEF = 3
+    type_spec_class = None
+
+    while True:
         # Parse a struct specifier if there is one.
-        if token_is(index, token_kinds.struct_kw):
-            node, index = parse_struct_spec(index + 1)
+        if not type_spec_class and token_is(index, token_kinds.struct_kw):
+            node, index = parse_struct(index + 1)
             specs.append(node)
-            matching = True
-            continue
+            type_spec_class = STRUCT
 
-        # Try parsing any of the other specifiers
-        for spec in decl_specifiers:
-            if token_is(index, spec):
+        # Match a typedef name
+        elif not type_spec_class and token_is(index, token_kinds.identifier) and p.symbols.is_typedef(p.tokens[index]):
+            specs.append(p.tokens[index])
+            index += 1
+            type_spec_class = TYPEDEF
+
+        elif type_spec_class in {None, SIMPLE} and token_in(index, type_specs):
+            specs.append(p.tokens[index])
+            index += 1
+            type_spec_class = SIMPLE
+
+        elif token_in(index, type_quals):
+            specs.append(p.tokens[index])
+            index += 1
+
+        elif token_in(index, storage_specs):
+            if not spec_qual:
                 specs.append(p.tokens[index])
-                index += 1
-                matching = True
-                break
+            else:
+                err = "storage specifier not permitted here"
+                error_collector.add(CompilerError(err, p.tokens[index].r))
+            index += 1
+
+        else:
+            break
 
     if specs:
         return specs, index
@@ -115,17 +176,73 @@ def parse_decl_specifiers(index):
         raise_error("expected declaration specifier", index, ParserError.AT)
 
 
-def find_pair_forward(index, open=token_kinds.open_paren, close=token_kinds.close_paren,
+def parse_spec_qual_list(index):
+    """Parse a specifier-qualifier list. This function saves a CompilerError if any declaration specifiers are provided
+    that are not type specifiers or type qualifiers.
+    """
+    return parse_decl_specifiers(index, True)
+
+
+def parse_parameter_list(index):
+    """Parse a function parameter list. Returns a list of decl_nodes arguments and the index right after the last
+    argument token. This index should be the index of a closing parenthesis, but that check is left to the caller.
+        index - index right past the opening parenthesis.
+    """
+    # List of decl_nodes arguments
+    params = []
+
+    # No arguments
+    if token_is(index, token_kinds.close_paren):
+        return params, index
+
+    while True:
+        # Try parsing declaration specifiers, quit if no more exist
+        specs, index = parse_decl_specifiers(index)
+        decl, index = parse_declarator(index)
+        params.append(decl_nodes.Root(specs, [decl]))
+
+        # Expect a comma, and break if there isn't one
+        if token_is(index, token_kinds.comma):
+            index += 1
+        else:
+            break
+
+    return params, index
+
+
+@add_range
+def parse_struct(index):
+    """Parse a struct specifier as a decl_nodes.Struct node.
+        index - index right past the `struct` keyword.
+    """
+    return parse_struct_spec(index, decl_nodes.Struct)
+
+
+def parse_struct_members(index):
+    """Parse the list of members of struct as a list of Root nodes.
+        index - index right past the open bracket starting the members list.
+    """
+    members = []
+
+    while True:
+        if token_is(index, token_kinds.close_brack):
+            return members, index + 1
+
+        node, index = parse_decls_inits(index, False)
+        members.append(node)
+
+
+def find_pair_forward(index, open_=token_kinds.open_paren, close=token_kinds.close_paren,
                       mess="mismatched parentheses in declaration"):
     """Find the closing parenthesis for the opening at given index.
         index - position to start search, should be of kind `open`.
-        open - token kind representing the open parenthesis.
+        open_ - token kind representing the open parenthesis.
         close - token kind representing the close parenthesis.
         mess - message for error on mismatch.
     """
     depth = 0
     for i in range(index, len(p.tokens)):
-        if p.tokens[i].kind == open: depth += 1
+        if p.tokens[i].kind == open_: depth += 1
         elif p.tokens[i].kind == close: depth -= 1
 
         if depth == 0: break
@@ -135,13 +252,13 @@ def find_pair_forward(index, open=token_kinds.open_paren, close=token_kinds.clos
     return i
 
 
-def find_pair_backward(index, open=token_kinds.open_paren, close=token_kinds.close_paren,
+def find_pair_backward(index, open_=token_kinds.open_paren, close=token_kinds.close_paren,
                        mess="mismatched parentheses in declaration"):
-    """Find the opening parenthesis for the closing at given index. Same parameters as _find_pair_forward above. """
+    """Find the opening parenthesis for the closing at given index. Same parameters as _find_pair_forward above."""
     depth = 0
     for i in range(index, -1, -1):
         if p.tokens[i].kind == close: depth += 1
-        elif p.tokens[i].kind == open: depth -= 1
+        elif p.tokens[i].kind == open_: depth -= 1
 
         if depth == 0: break
     else:
@@ -171,7 +288,7 @@ def find_decl_end(index):
         return index
 
 
-def parse_declarator(start, end):
+def _parse_declarator(start, end, is_typedef):
     """Parse the given tokens that comprises a declarator.
 
     This function parses both declarator and abstract-declarators. For an abstract declarator, the Identifier node at
@@ -179,51 +296,61 @@ def parse_declarator(start, end):
 
     Expects the declarator to start at start and end at end-1 inclusive. Returns a decl_nodes.Node.
     """
-    if start == end:
-        return decl_nodes.Identifier(None)
+    decl = parse_declarator_raw(start, end, is_typedef)
+    decl.r = p.tokens[start].r + p.tokens[end - 1].r
+    return decl
+
+
+def parse_declarator_raw(start, end, is_typedef):
+    """Like _parse_declarator, but doesn't add `.r` range attribute."""
+
+    if start == end: return decl_nodes.Identifier(None)
 
     elif start + 1 == end and p.tokens[start].kind == token_kinds.identifier:
+        p.symbols.add_symbol(p.tokens[start], is_typedef)
         return decl_nodes.Identifier(p.tokens[start])
 
     elif p.tokens[start].kind == token_kinds.star:
         const, index = find_const(start + 1)
-        return decl_nodes.Pointer(parse_declarator(index, end), const)
+        return decl_nodes.Pointer(_parse_declarator(index, end, is_typedef), const)
 
-    # Last element indicates a function type
-    elif (p.tokens[end - 1].kind == token_kinds.close_paren
-          and try_parse_func_decl(start, end)):
-        return try_parse_func_decl(start, end)
+    func_decl = try_parse_func_decl(start, end, is_typedef)
+    if func_decl: return func_decl
 
     # First and last elements make a parenthesis pair
     elif p.tokens[start].kind == token_kinds.open_paren and find_pair_forward(start) == end - 1:
-        return parse_declarator(start + 1, end - 1)
+        return _parse_declarator(start + 1, end - 1, is_typedef)
 
     # Last element indicates an array type
     elif p.tokens[end - 1].kind == token_kinds.close_sq_brack:
-        first = p.tokens[end - 3].kind == token_kinds.open_sq_brack
-        number = p.tokens[end - 2].kind == token_kinds.number
-        if first and number:
-            return decl_nodes.Array(int(p.tokens[end - 2].content), parse_declarator(start, end - 3))
+        open_sq = find_pair_backward(end - 1, token_kinds.open_sq_brack, token_kinds.close_sq_brack,
+                                     "mismatched square brackets in declaration")
+
+        if open_sq == end - 2: num_elem = None
+        else:
+            num_elem, index = parse_expression(open_sq + 1)
+            if index != end - 1:
+                err = "unexpected token in array size"
+                raise_error(err, index, ParserError.AFTER)
+
+        return decl_nodes.Array(num_elem, _parse_declarator(start, open_sq, is_typedef))
 
     raise_error("faulty declaration syntax", start, ParserError.AT)
 
 
-def try_parse_func_decl(start, end):
-    """Parse a function declarator between start and end.
-
-    Expects that tokens[end-1] is a close parenthesis. If a function declarator is successfully parsed, returns the
-    decl_node.Function object. Otherwise, returns None.
+def try_parse_func_decl(start, end, is_typedef=False):
+    """Parse a function declarator between start and end. Expects that tokens[end-1] is a close parenthesis.
+    If a function declarator is successfully parsed, returns the decl_node.Function object. Otherwise, returns None.
     """
-    open_paren = find_pair_backward(end - 1)
-    try:
-        params, index = parse_parameter_list(open_paren + 1)
-    except ParserError as e:
-        log_error(e)
-        return None
+    if not token_is(end - 1, token_kinds.close_paren): return None
 
-    if index == end - 1:
-        return decl_nodes.Function(
-            params, parse_declarator(start, open_paren))
+    open_paren = find_pair_backward(end - 1)
+    with log_error():
+        params, index = parse_parameter_list(open_paren + 1)
+        if index == end - 1:
+            return decl_nodes.Function(params, _parse_declarator(start, open_paren, is_typedef))
+
+    return None
 
 
 def find_const(index):
@@ -238,44 +365,11 @@ def find_const(index):
     return has_const, index
 
 
-def parse_parameter_list(index):
-    """Parse a function parameter list.
-
-    Returns a list of decl_nodes arguments and the index right after the last argument token. This index should be the
-    index of a closing parenthesis, but that check is left to the caller.
-
-        index - index right past the opening parenthesis
-    """
-    # List of decl_nodes arguments
-    params = []
-
-    # No arguments
-    if token_is(index, token_kinds.close_paren):
-        return params, index
-
-    while True:
-        # Try parsing declaration specifiers, quit if no more exist
-        specs, index = parse_decl_specifiers(index)
-
-        end = find_decl_end(index)
-        range = p.tokens[index].r + p.tokens[end - 1].r
-        decl = parse_declarator(index, end)
-        params.append(decl_nodes.Root(specs, [decl], None, [range]))
-
-        index = end
-
-        # Expect a comma, and break if there isn't one
-        if token_is(index, token_kinds.comma):
-            index += 1
-        else:
-            break
-
-    return params, index
-
-
-def parse_struct_spec(index):
-    """Parse a struct specifier as a decl_nodes.Struct node.
-        index - index right past the `struct` keyword
+def parse_struct_spec(index, node_type):
+    """Parse a struct specifier. A struct specifier includes everything between the `struct` keyword to the end of the
+    member list if one exists.
+        index - index right past the type definition keyword.
+        node_type - either decl_nodes.Struct.
     """
     start_r = p.tokens[index - 1].r
 
@@ -293,18 +387,4 @@ def parse_struct_spec(index):
         raise_error(err, index, ParserError.AFTER)
 
     r = start_r + p.tokens[index - 1].r
-    return decl_nodes.Struct(name, members, r), index
-
-
-def parse_struct_members(index):
-    """Parse the list of members of a struct as a list of Root nodes.
-        index - index right past the open bracket starting the members list
-    """
-    members = []
-
-    while True:
-        if token_is(index, token_kinds.close_brack):
-            return members, index + 1
-
-        node, index = parse_decls_inits(index, False)
-        members.append(node)
+    return node_type(name, members, r), index

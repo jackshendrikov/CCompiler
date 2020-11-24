@@ -1,5 +1,5 @@
-"""This module defines and implements classes representing assembly commands. The _ASMCommand object is the base class
-for most ASM commands. Some commands inherit from _ASMCommandMultiSize or _JumpCommand instead.
+"""This module defines and implements classes representing assembly commands. The ASMCommand object is the base class
+for most ASM commands. Some commands inherit from ASMCommandMultiSize or JumpCommand instead.
 """
 
 
@@ -14,6 +14,24 @@ class ASMCommand:
         self.dest = dest.asm_str(size) if dest else None
         self.source = source.asm_str(size) if source else None
         self.size = size
+
+    def __str__(self):
+        s = "\t" + self.name
+        if self.dest: s += " " + self.dest
+        if self.source: s += ", " + self.source
+        return s
+
+
+class ASMCommandMultiSize:
+    """Base class for an ASMCommand which takes arguments of different sizes. For example, `movsx` and `movzx`."""
+
+    name = None
+
+    def __init__(self, dest, source, source_size, dest_size):
+        self.dest = dest.asm_str(source_size)
+        self.source = source.asm_str(dest_size)
+        self.source_size = source_size
+        self.dest_size = dest_size
 
     def __str__(self):
         s = "\t" + self.name
@@ -56,7 +74,7 @@ class Label:
 
 
 class LabelFunc:
-    """Class for label."""
+    """Class for start of function definition label."""
 
     def __init__(self, label):
         self.label = label
@@ -66,7 +84,7 @@ class LabelFunc:
 
 
 class LabelEndFunc:
-    """Class for label."""
+    """Class for end of function label."""
 
     def __init__(self, label):
         self.label = label
@@ -100,11 +118,14 @@ class Jae(JumpCommand): name = "jae"
 class Jb(JumpCommand): name = "jb"
 class Jbe(JumpCommand): name = "jbe"
 class Jmp(JumpCommand): name = "jmp"
+class Movsx(ASMCommandMultiSize): name = "movsx"
+class Movzx(ASMCommandMultiSize): name = "movzx"
 class Mov(ASMCommand): name = "mov"
 class BitwiseAnd(ASMCommand): name = "and"
 class Add(ASMCommand): name = "add"
 class Sub(ASMCommand): name = "sub"
 class Neg(ASMCommand): name = "neg"
+class Not(ASMCommand): name = "not"
 class Div(ASMCommand): name = "div"
 class Imul(ASMCommand): name = "imul"
 class Idiv(ASMCommand): name = "idiv"
@@ -116,3 +137,5 @@ class Pop(ASMCommand): name = "pop"
 class Push(ASMCommand): name = "push"
 class Call(ASMCommand): name = "call"
 class Ret(ASMCommand): name = "ret"
+class Sar(ASMCommandMultiSize): name = "sar"
+class Sal(ASMCommandMultiSize): name = "sal"

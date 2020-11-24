@@ -6,16 +6,17 @@ A Token instance represents a token as produced by the lexer.
 class TokenKind:
     """Class representing the various known kinds of tokens.
         Ex: +, -, (), !, return, int
-    There are also token kind instances for each of 'identifier' and 'number'. See token_kinds.py for a list of
+    There are also token kind instances for each of 'identifier' and 'number'. token_kinds.py contains a list of
     token_kinds defined.
         text_repr (str) - The token's representation in text, if it has a fixed representation.
     """
 
-    def __init__(self, text_repr="", kinds=[]):
+    def __init__(self, text_repr="", kinds=None):
         """Initialize a new TokenKind and add it to `kinds`.
             kinds (List[TokenKind]) - List of kinds to which this TokenKind is added. This is convenient when defining
             token kinds in token_kind.py.
         """
+        if kinds is None: kinds = []
         self.text_repr = text_repr
         kinds.append(self)
         kinds.sort(key=lambda kind: -len(kind.text_repr))

@@ -1,6 +1,7 @@
 """Objects for the IL->ASM stage of the compiler."""
 
 from spots import Spot, RegSpot, MemSpot, LiteralSpot
+from il_cmds.control import DIRECT_VAL
 import itertools
 import asm_cmds
 import spots
@@ -14,7 +15,7 @@ class ASMCode:
 
     def __init__(self):
         """Initialize ASMCode."""
-        self.lines, self.globals, self.data, self.string_literals, self.invokes = [], [], [], [], []
+        self.lines, self.globals, self.data, self.output, self.string_literals, self.invokes = [], [], [], [], [], []
 
     def add(self, cmd):
         """Add a command to the code.
@@ -23,18 +24,13 @@ class ASMCode:
         self.lines.append(cmd)
 
     label_num = 0
+    string_exist = False
 
     @staticmethod
     def get_label():
         """Return a unique label string."""
         ASMCode.label_num += 1
-        return "__JackShenC_label" + str(ASMCode.label_num)
-
-    def add_label(self, label):
-        """Add a label to the code.
-            label (str) - The label string to add.
-        """
-        self.lines.append(label)
+        return f"__JackShenC_label{ASMCode.label_num}"
 
     def add_global(self, name):
         """Add a name to the code as global.
@@ -48,8 +44,14 @@ class ASMCode:
         """
         self.invokes.append(f"\tinvoke {name}")
 
+    def add_output(self, string):
+        self.output.append(f"\t\t\t\"{string}\", 0ah,")
+
     def add_data(self, name, size):
-        self.data.append(f"\t{name} dd {size}")
+        self.data.append(f"{name} dd {size}")
+
+    def add_res(self, name):
+        self.data.append(f"{name} dd ?, 0")
 
     def add_string_literal(self, name, chars):
         """Add a string literal to the ASM code."""
@@ -78,6 +80,13 @@ class MASMCode(ASMCode):
             return (str) - The assembly code, ready for saving to disk and assembling.
         """
 
+        names = []
+        names_len = len(DIRECT_VAL) / 2
+        if self.string_exist:
+            for name in DIRECT_VAL[-int(names_len):]:
+                self.add_res(name)
+                names.append(str(name))
+
         header = [".386",
                   ".model flat, stdcall",
                   "option casemap:none\n",
@@ -88,30 +97,35 @@ class MASMCode(ASMCode):
                   "includelib \\masm32\\lib\\masm32.lib",
                   "includelib \\masm32\\lib\\kernel32.lib",
                   "includelib \\masm32\\lib\\user32.lib\n",
-                  ".data"] + self.data + ["Caption db \"Лабораторна работа №5\", 0",
-                                          "Output db \"Результат програми: %d\", 0ah, 0ah,",
-                                          "          \"Автор: Шендріков Євгеній, ІО-82\", 0",
-                                          "StrBuf dw ?, 0"]
+                  ".data"] + self.data + ["Caption db \"РОЗРАХУНКОВА РОБОТА\", 0", "Output db   \"" + "—" * 18 +
+                                          "\", 0ah,\n\t\t\t\"|" + " " * 25 + " RESULT " + " " * 25 +
+                                          "|\", 0ah,\n\t\t\t\"" + "—" * 18 + "\", 0ah, 0ah,"] + sorted(self.output) + \
+                 ["\t\t\t\"Author: Shendrikov Yevhenii, IO-82\", 0", "StrBuf dw ?, 0"]
+
         if self.string_literals:
-            header += ["\t.section .data"] + self.string_literals + [""]
+            header += self.string_literals + [""]
 
         header += [''] + self.globals
         header += ['\n.code'] + [str(line) for line in self.lines]
 
-        footer = ["start:"] + ["\tinvoke main",
-                               "\tinvoke wsprintf, ADDR StrBuf, ADDR Output, eax",
-                               "\tinvoke MessageBox, 0, ADDR StrBuf, ADDR Caption, MB_ICONINFORMATION",
-                               "\tinvoke ExitProcess, 0",
-                               "end start"]
+        footer = ["start:", "\tinvoke main"]
+
+        if names_len > 0 and self.string_exist: footer += ["\tinvoke wsprintf, ADDR StrBuf, ADDR Output, " + ', '.join(names)]
+        else: footer += ["\tinvoke wsprintf, ADDR StrBuf, ADDR Output, eax"]
+
+        footer += ["\tinvoke MessageBox, 0, ADDR StrBuf, ADDR Caption, MB_ICONINFORMATION",
+                   "\tinvoke ExitProcess, 0",
+                   "end start"]
+
         return "\n".join(header + footer)
 
 
 class NodeGraph:
     """Graph storing conflict and preference information.
-        self._real_nodes - list of all real nodes in this graph.
-        self._all_nodes - list of all nodes in this graph, including precolored.
+        self.real_nodes - list of all real nodes in this graph.
+        self.all_nodes - list of all nodes in this graph, including precolored.
         self.conf - dictionary mapping each node to nodes with which it has a conflict edge.
-        self._pref - dictionary mapping each node to nodes with which it has a preference edge.
+        self.pref - dictionary mapping each node to nodes with which it has a preference edge.
     The conflict and preference relations are symmetric.
     """
 
@@ -134,8 +148,7 @@ class NodeGraph:
 
         # Dummy nodes must mutually conflict
         for n in self._all_nodes:
-            if n not in self._real_nodes and n != v:
-                self.add_conflict(n, v)
+            if n not in self._real_nodes and n != v: self.add_conflict(n, v)
 
     def add_conflict(self, n1, n2):
         """Add a conflict edge between n1 and n2."""
@@ -156,25 +169,20 @@ class NodeGraph:
         self._all_nodes.remove(n)
 
         for v in self._conf:
-            if n in self._conf[v]:
-                self._conf[v].remove(n)
+            if n in self._conf[v]: self._conf[v].remove(n)
         for v in self._pref:
-            if n in self._pref[v]:
-                self._pref[v].remove(n)
+            if n in self._pref[v]: self._pref[v].remove(n)
         return n
 
     def merge(self, n1, n2):
-        """Merge nodes n1 and n2.
-        This function merges n2 into n1. That is, it removes n2 from the
-        graph and n1 gets the preference neighbors and conflict neighbors
-        that n2 previously had.
+        """Merge nodes n1 and n2. This function merges n2 into n1. That is, it removes n2 from the graph and n1 gets
+        the preference neighbors and conflict neighbors that n2 previously had.
         """
 
         # Merge conflict lists
         total_conf = self._conf[n1][:]
         for c in self._conf[n2]:
-            if c not in total_conf:
-                total_conf.append(c)
+            if c not in total_conf: total_conf.append(c)
 
         self._conf[n1] = total_conf
 
@@ -186,8 +194,7 @@ class NodeGraph:
         # Merge preference lists
         total_pref = self._pref[n1][:]
         for p in self._pref[n2]:
-            if p not in total_pref:
-                total_pref.append(p)
+            if p not in total_pref: total_pref.append(p)
 
         if n1 in total_pref: total_pref.remove(n1)
         if n2 in total_pref: total_pref.remove(n2)
@@ -247,7 +254,7 @@ class ASMGen:
         il_code (ILCode) - IL code to convert to ASM.
         asm_code (ASMCode) - ASMCode object to populate with ASM.
         arguments - Arguments passed via command line.
-        offset (int) - Current offset from RBP for allocating on stack
+        offset (int) - Current offset from RBP for allocating on stack.
     """
 
     # List of registers used for allocation, sorted preferred-first
@@ -256,9 +263,10 @@ class ASMGen:
     # List of registers used by the get_reg function.
     all_registers = alloc_registers
 
-    def __init__(self, il_code, asm_code, arguments):
+    def __init__(self, il_code, symbol_table, asm_code, arguments):
         """Initialize ASMGen."""
         self.il_code = il_code
+        self.symbol_table = symbol_table
         self.asm_code = asm_code
         self.arguments = arguments
 
@@ -274,6 +282,16 @@ class ASMGen:
             self._make_asm(self.il_code.commands[func], global_spotmap)
             self.asm_code.add(asm_cmds.LabelEndFunc(func))
 
+        if len(self.il_code.string_literals) == 0:
+            self.asm_code.output.append("\t\t\t\"Program Result: %d\", 0ah, 0ah,")
+        else: ASMCode.string_exist = True
+        # my_len, counter = int(len(DIRECT_VAL) / 2), 1
+        # if my_len > 1:
+        #     for i in range(my_len):
+        #         self.asm_code.output.append(f"\t\t\t\"Result{counter}: %d\", 0ah, 0ah,")
+        #         counter += 1
+        # else: self.asm_code.output.append("\t\t\t\"Program Result: %d\", 0ah, 0ah,")
+
     def _make_asm(self, commands, global_spotmap):
         """Generate ASM code for given command list."""
 
@@ -286,19 +304,24 @@ class ASMGen:
             refs = command.references().values()
             for line in refs:
                 for v in line:
-                    if v not in refs:
-                        move_to_mem.append(v)
+                    if v not in refs: move_to_mem.append(v)
 
         for v in move_to_mem:
             if v in free_values:
                 self.offset += v.ctype.size
-                global_spotmap[v] = MemSpot(spots.RBP, -self.offset)
+                global_spotmap[v] = MemSpot(spots.EBP, -self.offset)
                 free_values.remove(v)
 
         # In addition, move all IL values of strange size to memory because they won't fit in a register.
         for v in free_values:
             if v.ctype.size not in {1, 2, 4, 8}:
                 move_to_mem.append(v)
+
+        for v in move_to_mem:
+            if v in free_values:
+                self.offset += v.ctype.size
+                global_spotmap[v] = MemSpot(spots.EBP, -self.offset)
+                free_values.remove(v)
 
             # Perform liveliness analysis
         live_vars = self.get_live_vars(commands, free_values)
@@ -351,7 +374,7 @@ class ASMGen:
         # Assign stack values to the spilled nodes
         for v in spilled_nodes:
             self.offset += v.ctype.size
-            spotmap[v] = MemSpot(spots.RBP, -self.offset)
+            spotmap[v] = MemSpot(spots.EBP, -self.offset)
 
         # Merge global spotmap into this spotmap
         for v in global_spotmap:
@@ -375,63 +398,63 @@ class ASMGen:
         # Generate assembly code
         self.generate_asm(commands, live_vars, spotmap)
 
-    def all_il_values(self):
-        """Return a list of all IL values that appear in the IL code."""
-        all_values = []
-        for command in self.il_code:
-            for value in command.inputs() + command.outputs():
-                if value not in all_values:
-                    all_values.append(value)
-
-        return all_values
-
     def get_global_spotmap(self):
-        """Generate global spotmap and add global values to ASM.
-        This function generates a spotmap for variables which are not
-        specific to a single function. This includes literals and variables
-        with static storage duration.
+        """Generate global spotmap and add global values to ASM. This function generates a spotmap for variables which
+        are not specific to a single function. This includes literals and variables with static storage duration.
         """
         global_spotmap = {}
 
-        string_literal_number = 0
-        local_static_number = 0
+        EXTERNAL = self.symbol_table.EXTERNAL
+        DEFINED = self.symbol_table.DEFINED
 
-        for value in self.il_code.literals:
-            s = LiteralSpot(self.il_code.literals[value])
-            global_spotmap[value] = s
+        num = 0
 
-        for value in self.il_code.no_storage:
-            # These values can be referenced by their name in the ASM
-            s = MemSpot(self.il_code.no_storage[value])
-            global_spotmap[value] = s
+        for value in (set(self.il_code.literals.keys()) | set(self.il_code.string_literals.keys()) |
+                      set(self.symbol_table.storage.keys())):
+            num += 1
+            spot = self.get_nondynamic_spot(value, num)
+            if spot: global_spotmap[value] = spot
 
-        for value in self.il_code.static_storage:
-            name = self.il_code.static_storage[value]
-
-            # internal static values should get name mangled, in case multiple functions declare static variables with
-            # the same name
-            if value not in self.il_code.external:
-                name = f"{name}{local_static_number}"
-                local_static_number += 1
-
-            s = MemSpot(name)
-            global_spotmap[value] = s
-            self.asm_code.add_data(name, value.ctype.size)
-
-        for value in self.il_code.string_literals:
-            name = f"__strlit{string_literal_number}"
-            string_literal_number += 1
-
-            self.asm_code.add_string_literal(
-                name, self.il_code.string_literals[value])
-            global_spotmap[value] = MemSpot(name)
-
-        for value in self.il_code.external:
-            if value in self.il_code.defined:
-                self.asm_code.add_global(self.il_code.external[value])
-                self.asm_code.add_invoke(self.il_code.external[value])
+        externs = self.symbol_table.linkages[EXTERNAL].values()
+        for v in externs:
+            if self.symbol_table.def_state.get(v) == DEFINED:
+                self.asm_code.add_global(self.symbol_table.names[v])
 
         return global_spotmap
+
+    def get_nondynamic_spot(self, v, num):
+        """Get a spot for non-dynamic values. In particular, assigns a spot to all literals, string literals,
+        variables with no storage, and variables with static storage.
+            v - value to get a spot for, or None if the value goes in a dynamic spot like a register.
+            num - positive integer guaranteed never to be the same for two distinct calls to this function.
+        """
+        EXTERNAL = self.symbol_table.EXTERNAL
+        INTERNAL = self.symbol_table.INTERNAL
+        TENTATIVE = self.symbol_table.TENTATIVE
+
+        if v in self.il_code.literals:
+            return LiteralSpot(self.il_code.literals[v])
+
+        elif v in self.il_code.string_literals:
+            self.asm_code.add_output(bytes(self.il_code.string_literals[v][:-1]).decode())
+
+        # Values with no storage can be referenced directly by name
+        elif not self.symbol_table.storage.get(v, True):
+            return MemSpot(self.symbol_table.names[v])
+
+        elif self.symbol_table.storage.get(v) == self.symbol_table.STATIC:
+            name = self.symbol_table.names[v]
+            if self.symbol_table.linkage_type.get(v) != EXTERNAL:
+                name = f"{name}.{num}"
+
+            if self.symbol_table.def_state.get(v) == TENTATIVE:
+                local = (self.symbol_table.linkage_type[v] == INTERNAL)
+                self.asm_code.add_comm(name, v.ctype.size, local)
+            else:
+                init_val = self.il_code.static_inits.get(v, 0)
+                self.asm_code.add_data(name, v.ctype.size, init_val)
+
+            return MemSpot(name)
 
     @staticmethod
     def get_free_values(commands, global_spotmap):
@@ -440,8 +463,7 @@ class ASMGen:
         free_values = []
         for command in commands:
             for value in command.inputs() + command.outputs():
-                if (value and value not in free_values
-                        and value not in global_spotmap):
+                if value and value not in free_values and value not in global_spotmap:
                     free_values.append(value)
 
         return free_values
@@ -454,8 +476,7 @@ class ASMGen:
             into the command and the second is a list of the variables live exiting the command.
         """
         # Preprocess all commands to get a mapping from labels to command number.
-        labels = {c.label_name(): i for i, c in enumerate(commands)
-                  if c.label_name()}
+        labels = {c.label_name(): i for i, c in enumerate(commands) if c.label_name()}
 
         # Last iteration of live variables
         prev_live_vars = None
@@ -475,22 +496,19 @@ class ASMGen:
                 for label in command.targets():
                     i2 = labels[label]
                     for v in prev_live_vars[i2][0]:
-                        if v not in cur_live:
-                            cur_live.append(v)
+                        if v not in cur_live: cur_live.append(v)
 
                 # Variables live on output from this command
                 out_live = cur_live[:]
 
                 # Add variables used in this command to current live variables
                 for v in command.inputs():
-                    if v in free_values and v not in cur_live:
-                        cur_live.append(v)
+                    if v in free_values and v not in cur_live: cur_live.append(v)
 
                 # Remove variables defined in this command to live variables
                 for v in command.outputs():
                     if v in free_values:
-                        if v in cur_live:
-                            cur_live.remove(v)
+                        if v in cur_live: cur_live.remove(v)
                         else:
                             # If variable is defined in command but not live, make it live on output from this command.
                             out_live.append(v)
@@ -516,14 +534,14 @@ class ASMGen:
             for n1, n2 in itertools.combinations(live_vars[i][1], 2): g.add_conflict(n1, n2)
 
             # Relative conflict set of this command
-            for n1 in command.rel_spot_conf():
-                for n2 in command.rel_spot_conf()[n1]:
+            for n1 in command.rel_spot_conflict():
+                for n2 in command.rel_spot_conflict()[n1]:
                     if n1 in free_values and n2 in free_values:
                         g.add_conflict(n1, n2)
 
             # Absolute conflict set of this command
-            for n in command.abs_spot_conf():
-                for s in command.abs_spot_conf()[n]:
+            for n in command.abs_spot_conflict():
+                for s in command.abs_spot_conflict()[n]:
                     if n in free_values:
                         if s not in g.all_nodes():
                             g.add_dummy_node(s)
@@ -531,26 +549,22 @@ class ASMGen:
 
             # Clobber set of this command
             for s in command.clobber():
-                if s not in g.all_nodes():
-                    g.add_dummy_node(s)
+                if s not in g.all_nodes(): g.add_dummy_node(s)
 
                 # Add a conflict with dummy node for every variable live during both entry and exit from this command.
                 for n in live_vars[i][0]:
-                    if n in live_vars[i][1]:
-                        g.add_conflict(n, s)
+                    if n in live_vars[i][1]: g.add_conflict(n, s)
 
             # Form preferences based on rel_spot_pref
-            for v1 in command.rel_spot_pref():
-                for v2 in command.rel_spot_pref()[v1]:
-                    if g.is_node(v1) and g.is_node(v2):
-                        g.add_pref(v1, v2)
+            for v1 in command.rel_spot_preference():
+                for v2 in command.rel_spot_preference()[v1]:
+                    if g.is_node(v1) and g.is_node(v2): g.add_pref(v1, v2)
 
             # Form preferences based on abs_spot_pref
-            for v in command.abs_spot_pref():
-                for s in command.abs_spot_pref()[v]:
+            for v in command.abs_spot_preference():
+                for s in command.abs_spot_preference()[v]:
                     if v in free_values:
-                        if s not in g.all_nodes():
-                            g.add_dummy_node(s)
+                        if s not in g.all_nodes(): g.add_dummy_node(s)
                         g.add_pref(v, s)
         return g
 
@@ -591,8 +605,7 @@ class ASMGen:
         while True:
             merge = self.coalesce_once(g)
             if merge:
-                if merge[0] not in merged_nodes:
-                    merged_nodes[merge[0]] = []
+                if merge[0] not in merged_nodes: merged_nodes[merge[0]] = []
 
                 merged_nodes[merge[0]].append(merge[1])
                 did_something = True
@@ -608,8 +621,7 @@ class ASMGen:
         for v1 in g.nodes():
             for v2 in g.prefs(v1):
                 # If the two nodes conflict, automatically continue.
-                if v1 in g.confs(v2):
-                    continue
+                if v1 in g.confs(v2): continue
 
                 total_confs = len(set(g.confs(v1)) | set(g.confs(v2)))
 
@@ -618,10 +630,8 @@ class ASMGen:
                     v1, v2 = v2, v1
                 if isinstance(v2, Spot):
                     for T in g.confs(v1):
-                        if v2 in g.confs(T):
-                            continue
-                        if len(g.confs(T)) < len(self.alloc_registers):
-                            continue
+                        if v2 in g.confs(T): continue
+                        if len(g.confs(T)) < len(self.alloc_registers): continue
                         break
                     else:
                         # We can merge v1 into v2.
@@ -686,23 +696,19 @@ class ASMGen:
             regs = self.alloc_registers[::-1]
 
             # If n1 is a Spot (i.e. dummy node), immediately assign it a register.
-            if n1 in regs:
-                reg = n1
+            if n1 in regs: reg = n1
             else:
                 # Don't chose any conflicting spots
                 for n2 in get_conflicts(n1):
                     # If n2 is a physical spot
-                    if n2 in regs:
-                        regs.remove(n2)
-                    if n2 in spotmap and spotmap[n2] in regs:
-                        regs.remove(spotmap[n2])
+                    if n2 in regs: regs.remove(n2)
+                    if n2 in spotmap and spotmap[n2] in regs: regs.remove(spotmap[n2])
 
                 # Based on algorithm, there should always be register remaining
                 reg = regs.pop()
 
             # Assign this register to every node merged into n1
-            for n2 in get_merged(n1):
-                spotmap[n2] = reg
+            for n2 in get_merged(n1): spotmap[n2] = reg
 
         return spotmap
 
@@ -710,15 +716,14 @@ class ASMGen:
         """Generate assembly code."""
 
         max_offset = max(spot.rbp_offset() for spot in spotmap.values())
-        if max_offset % 16 != 0:
-            max_offset += 16 - max_offset % 16
+        if max_offset % 16 != 0: max_offset += 16 - max_offset % 16
 
         # Back up ebp and move esp
-        self.asm_code.add(asm_cmds.Push(spots.RBP, None, 8))
-        self.asm_code.add(asm_cmds.Mov(spots.RBP, spots.RSP, 8))
+        self.asm_code.add(asm_cmds.Push(spots.EBP, None, 8))
+        self.asm_code.add(asm_cmds.Mov(spots.EBP, spots.ESP, 8))
 
         offset_spot = LiteralSpot(str(max_offset))
-        self.asm_code.add(asm_cmds.Sub(spots.RSP, offset_spot, 8))
+        self.asm_code.add(asm_cmds.Sub(spots.ESP, offset_spot, 8))
 
         # Generate code for each command
         for i, command in enumerate(commands):

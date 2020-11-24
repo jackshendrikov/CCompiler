@@ -1,26 +1,36 @@
 """Main executable for JackShenC compiler. For usage, run "./main.py --help"."""
+
 import subprocess
 import argparse
 import sys
 
+import lexer
+import preproc
+
 from errors import error_collector, CompilerError
 from il_gen import ILCode, SymbolTable, Context
-from asm_gen import ASMCode, ASMGen, MASMCode
 from myparser.myparser import parse
-from lexer import tokenize
+from asm_gen import ASMCode, MASMCode, ASMGen
 
 
 def main():
     """Run the main compiler script."""
 
     arguments = get_arguments()
+
     code, filename = read_file(arguments)
     if not error_collector.ok():
         error_collector.show()
         input("\nPress Any Key To Exit...")
         return 1
 
-    token_list = tokenize(code, filename)
+    token_list = lexer.tokenize(code, filename)
+    if not error_collector.ok():
+        error_collector.show()
+        input("\nPress Any Key To Exit...")
+        return 1
+
+    token_list = preproc.process(token_list, filename)
     if not error_collector.ok():
         error_collector.show()
         input("\nPress Any Key To Exit...")
@@ -33,7 +43,8 @@ def main():
         return 1
 
     il_code = ILCode()
-    ast_root.make_il(il_code, SymbolTable(), Context())
+    symbol_table = SymbolTable()
+    ast_root.make_il(il_code, symbol_table, Context())
     if not error_collector.ok():
         error_collector.show()
         input("\nPress Any Key To Exit...")
@@ -49,8 +60,8 @@ def main():
     if arguments.show_tree: print(ast_root)
 
     asm_code, masm_code = ASMCode(), MASMCode()
-    ASMGen(il_code, asm_code, arguments).make_asm()
-    ASMGen(il_code, masm_code, arguments).make_asm()
+    ASMGen(il_code, symbol_table, asm_code, arguments).make_asm()
+    ASMGen(il_code, symbol_table, masm_code, arguments).make_asm()
     asm_source, masm_source = asm_code.full_code(), masm_code.full_code()
 
     if not error_collector.ok():
@@ -58,7 +69,7 @@ def main():
         input("\nPress Any Key To Exit...")
         return 1
 
-    masm_filename = "5-25-Python-IO-82-Shendrikov.asm"
+    masm_filename = "РГР-25-Python-IO-82-Shendrikov.asm"
     write_asm(masm_source, masm_filename)
     if not error_collector.ok():
         error_collector.show()
@@ -77,8 +88,8 @@ def main():
     #     return 1
 
     error_collector.show()
-    print("Token list: ", token_list)
-    input("\nThe program finished successfully!\nPress Any Key To Exit...")
+    # print("Token list: ", token_list)
+    input("The program finished successfully!\nPress Any Key To Exit...")
 
     return 0
 
@@ -109,7 +120,7 @@ def get_arguments():
     parser.add_argument("-variables-on-stack", help="allocate all variables on the stack",
                         dest="variables_on_stack", action="store_true")
 
-    parser.set_defaults(filename="5-25-Python-IO-82-Shendrikov.txt")
+    parser.set_defaults(filename="РГР-25-Python-IO-82-Shendrikov.c")
     parser.set_defaults(show_il=False)
     parser.set_defaults(show_tokens=False)
     parser.set_defaults(show_tree=False)

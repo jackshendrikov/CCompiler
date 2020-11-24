@@ -1,16 +1,18 @@
 """Nodes in the AST which represent expression values."""
 
 from tree.utils import (IndirectLValue, DirectLValue, RelativeLValue, check_cast, set_type, arith_convert,
-                        get_size, report_err)
+                        get_size, report_err, shift_into_range)
 
 from ctypes import ArrayCType, PointerCType
 import il_cmds.compare as compare_cmds
 import il_cmds.control as control_cmds
 import il_cmds.value as value_cmds
+from tree.tree import Declaration
 import il_cmds.math as math_cmds
 from errors import CompilerError
 import tree.tree as nodes
 from il_gen import ILValue
+from abc import ABC
 import ctypes
 
 
@@ -27,8 +29,8 @@ class ExprNode(nodes.Node):
     def make_il(self, il_code, symbol_table, c):
         """Generate IL code for this node and returns ILValue.
 
-        Note that a RExprNode-derived node can never return an ILValue of function or array type because these must
-        decay to addresses, and because an RExprNode does not represent an lvalue, no address can exist.
+        RExprNode-derived node can never return an ILValue of function or array type because these must decay to
+        addresses, and because an RExprNode does not represent an lvalue, no address can exist.
             il_code - ILCode object to add generated code to.
             symbol_table - Symbol table for current node.
             c - Context for current node, as above. This function should not modify this object.
@@ -47,7 +49,6 @@ class ExprNode(nodes.Node):
 
 class RExprNode(nodes.Node):
     """Base class for representing an rvalue expression node in the AST.
-
     An RExprNode-derived node implements only the _make_il function.
     """
     def __init__(self):
@@ -181,14 +182,14 @@ class Identifier(LExprNode):
         self.identifier = identifier
 
     def _lvalue(self, il_code, symbol_table, c):
-        var = symbol_table.lookup_tok(self.identifier)
+        var = symbol_table.lookup_variable(self.identifier)
         return DirectLValue(var)
 
 
 class ParenExpr(nodes.Node):
     """Expression in parentheses.
 
-    This is implemented a bit hackily. Rather than being an LExprNode or RExprNode like all the other nodes, a paren
+    This is implemented a bit tricky. Rather than being an LExprNode or RExprNode like all the other nodes, a paren
     expression can be either depending on what's inside. So for all function calls to this function, we simply dispatch
     to the expression inside.
     """
@@ -231,26 +232,62 @@ class ArithBinOp(RExprNode):
         left = self.left.make_il(il_code, symbol_table, c)
         right = self.right.make_il(il_code, symbol_table, c)
 
-        if left.ctype.is_arith() and right.ctype.is_arith():
+        if self.check_type(left, right):
             left, right = arith_convert(left, right, il_code)
-            return self._arith(left, right, il_code)
+
+            if left.literal and right.literal:
+                # If NotImplementedError is raised, continue with execution.
+                try:
+                    val = self.arith_const(shift_into_range(left.literal.val, left.ctype),
+                                           shift_into_range(right.literal.val, right.ctype), left.ctype)
+                    out = ILValue(left.ctype)
+                    il_code.register_literal_var(out, val)
+                    return out
+
+                except NotImplementedError:
+                    pass
+
+            return self.arith(left, right, il_code)
+
         else:
-            return self._nonarith(left, right, il_code)
+            return self.nonarith(left, right, il_code)
 
     default_il_cmd = None
 
-    def _arith(self, left, right, il_code):
+    def check_type(self, left, right):
+        """Returns True if both arguments has arithmetic type.
+            left - ILValue for left operand.
+            right - ILValue for right operand.
+        """
+        return left.ctype.is_arith() and right.ctype.is_arith()
+
+    def arith(self, left, right, il_code):
         """Return the result of this operation on given arithmetic operands. Promotions and conversions are done by
         caller, so the implementation of this function need not convert operands. A default implementation is provided,
-        but this can be overriden by derived classes.
-            left - ILValue for left operand
-            right - ILValue for right operand
+        but this can be overridden by derived classes.
+            left - ILValue for left operand.
+            right - ILValue for right operand.
         """
         out = ILValue(left.ctype)
         il_code.add(self.default_il_cmd(out, left, right))
         return out
 
-    def _nonarith(self, left, right, il_code):
+    def arith_const(self, left, right, ctype):
+        """Return the result on compile-time constant operands.
+        For example, an expression like `5 + 7` can be evaluated at compile time without emitting any IL code.
+        This doubles as both an implementation of constant expressions in C and as a compiler optimization.
+
+        Promotions and conversions are done by caller, so the implementation of this function need not convert operands.
+        Also, the `left` and `right` values are guaranteed to be in range of representable values for the given ctype.
+
+        If this function raises NotImplementedError, the caller will use the arith function on given operands instead.
+
+            left_val - the NUMERICAL value of the left operand.
+            right_val - the NUMERICAL value of the right operand.
+        """
+        raise NotImplementedError
+
+    def nonarith(self, left, right, il_code):
         """Return the result of this operation on given nonarithmetic operands.
             left - ILValue for left operand.
             right - ILValue for right operand.
@@ -258,11 +295,11 @@ class ArithBinOp(RExprNode):
         raise NotImplementedError
 
 
-class BitwiseAnd(ArithBinOp):
+class BitwiseAnd(ArithBinOp, ABC):
     """Expression that is bitwise AND of two expressions.
         left - Expression on left side.
         right - Expression on right side.
-        op (Token) - Plus operator token.
+        op (Token) - Bitwise AND operator token.
     """
 
     def __init__(self, left, right, op):
@@ -271,7 +308,10 @@ class BitwiseAnd(ArithBinOp):
 
     default_il_cmd = math_cmds.BitwiseAnd
 
-    def _nonarith(self, left, right, il_code):
+    def arith_const(self, left, right, ctype):
+        return shift_into_range(left + right, ctype)
+
+    def nonarith(self, left, right, il_code):
         """Make addition code if either operand is non-arithmetic type."""
 
         # One operand should be pointer to complete object type, and the other should be any integer type.
@@ -294,7 +334,7 @@ class BitwiseAnd(ArithBinOp):
         return out
 
 
-class Plus(ArithBinOp):
+class Plus(ArithBinOp, ABC):
     """Expression that is sum of two expressions.
         left - Expression on left side.
         right - Expression on right side.
@@ -307,7 +347,10 @@ class Plus(ArithBinOp):
 
     default_il_cmd = math_cmds.Add
 
-    def _nonarith(self, left, right, il_code):
+    def arith_const(self, left, right, ctype):
+        return shift_into_range(left + right, ctype)
+
+    def nonarith(self, left, right, il_code):
         """Make addition code if either operand is non-arithmetic type."""
 
         # One operand should be pointer to complete object type, and the other should be any integer type.
@@ -330,7 +373,7 @@ class Plus(ArithBinOp):
         return out
 
 
-class Minus(ArithBinOp):
+class Minus(ArithBinOp, ABC):
     """Expression that is the difference of two expressions.
         left - Expression on left side.
         right - Expression on right side.
@@ -343,14 +386,15 @@ class Minus(ArithBinOp):
 
     default_il_cmd = math_cmds.Subtr
 
-    def _nonarith(self, left, right, il_code):
+    def arith_const(self, left, right, ctype):
+        return shift_into_range(left - right, ctype)
+
+    def nonarith(self, left, right, il_code):
         """Make subtraction code if both operands are non-arithmetic type."""
 
-        if (left.ctype.is_pointer() and right.ctype.is_pointer()
-             and left.ctype.compatible(right.ctype)):
+        if left.ctype.is_pointer() and right.ctype.is_pointer() and left.ctype.compatible(right.ctype):
 
-            if (not left.ctype.arg.is_complete() or
-                  not right.ctype.arg.is_complete()):
+            if not left.ctype.arg.is_complete() or not right.ctype.arg.is_complete():
                 err = "invalid arithmetic on pointers to incomplete types"
                 raise CompilerError(err, self.op.r)
 
@@ -382,7 +426,7 @@ class Minus(ArithBinOp):
             raise CompilerError(descr, self.op.r)
 
 
-class Mult(ArithBinOp):
+class Mult(ArithBinOp, ABC):
     """Expression that is product of two expressions."""
 
     def __init__(self, left, right, op):
@@ -391,12 +435,26 @@ class Mult(ArithBinOp):
 
     default_il_cmd = math_cmds.Mult
 
-    def _nonarith(self, left, right, il_code):
+    def arith_const(self, left, right, ctype):
+        return shift_into_range(left * right, ctype)
+
+    def nonarith(self, left, right, il_code):
         err = "invalid operand types for multiplication"
         raise CompilerError(err, self.op.r)
 
 
-class Div(ArithBinOp):
+class IntBinOp(ArithBinOp, ABC):
+    """Base class for operations that works with integral type operands."""
+
+    def check_type(self, left, right):
+        """Performs additional type check for operands.
+            left - ILValue for left operand.
+            right - ILValue for right operand.
+        """
+        return left.ctype.is_integral() and right.ctype.is_integral()
+
+
+class Div(ArithBinOp, ABC):
     """Expression that is quotient of two expressions."""
 
     def __init__(self, left, right, op):
@@ -405,12 +463,15 @@ class Div(ArithBinOp):
 
     default_il_cmd = math_cmds.Div
 
-    def _nonarith(self, left, right, il_code):
+    def arith_const(self, left, right, ctype):
+        return shift_into_range(int(left / right), ctype)
+
+    def nonarith(self, left, right, il_code):
         err = "invalid operand types for division"
         raise CompilerError(err, self.op.r)
 
 
-class Mod(ArithBinOp):
+class Mod(ArithBinOp, ABC):
     """Expression that is modulus of two expressions."""
 
     def __init__(self, left, right, op):
@@ -419,34 +480,53 @@ class Mod(ArithBinOp):
 
     default_il_cmd = math_cmds.Mod
 
-    def _nonarith(self, left, right, il_code):
+    def nonarith(self, left, right, il_code):
         err = "invalid operand types for modulus"
         raise CompilerError(err, self.op.r)
 
 
-class _Equality(ArithBinOp):
-    """Base class for == and != nodes."""
+class BitShift(IntBinOp, ABC):
+    """Represents a `<<` and `>>` bitwise shift operators. Each of operands must have integer type."""
 
+    def __init__(self, left, right, op):
+        """Initialize node."""
+        super().__init__(left, right, op)
+
+    def nonarith(self, left, right, il_code):
+        err = "invalid operand types for bitwise shift"
+        raise CompilerError(err, self.op.r)
+
+
+class RBitShift(BitShift, ABC):
+    """Represent a `>>` operator."""
+    default_il_cmd = math_cmds.RBitShift
+
+
+class LBitShift(BitShift, ABC):
+    """Represent a `<<` operator."""
+    default_il_cmd = math_cmds.LBitShift
+
+
+class _Equality(ArithBinOp, ABC):
+    """Base class for == and != nodes."""
     eq_il_cmd = None
 
     def __init__(self, left, right, op):
         """Initialize node."""
         super().__init__(left, right, op)
 
-    def _arith(self, left, right, il_code):
+    def arith(self, left, right, il_code):
         """Check equality of arithmetic expressions."""
         out = ILValue(ctypes.integer)
         il_code.add(self.eq_il_cmd(out, left, right))
         return out
 
-    def _nonarith(self, left, right, il_code):
+    def nonarith(self, left, right, il_code):
         """Check equality of non-arithmetic expressions."""
 
         # If either operand is a null pointer constant, cast it to the other's pointer type.
-        if left.ctype.is_pointer() and right.null_ptr_const:
-            right = set_type(right, left.ctype, il_code)
-        elif right.ctype.is_pointer() and left.null_ptr_const:
-            left = set_type(left, right.ctype, il_code)
+        if left.ctype.is_pointer() and right.null_ptr_const: right = set_type(right, left.ctype, il_code)
+        elif right.ctype.is_pointer() and left.null_ptr_const: left = set_type(left, right.ctype, il_code)
 
         # If both operands are not pointer types, quit now
         if not left.ctype.is_pointer() or not right.ctype.is_pointer():
@@ -474,34 +554,31 @@ class _Equality(ArithBinOp):
         return out
 
 
-class Equality(_Equality):
+class Equality(_Equality, ABC):
     """Expression that checks equality of two expressions."""
-
     eq_il_cmd = compare_cmds.EqualCmp
 
 
-class Inequality(_Equality):
+class Inequality(_Equality, ABC):
     """Expression that checks inequality of two expressions."""
-
     eq_il_cmd = compare_cmds.NotEqualCmp
 
 
-class Relational(ArithBinOp):
+class Relational(ArithBinOp, ABC):
     """Base class for <, <=, >, and >= nodes."""
-
     comp_cmd = None
 
     def __init__(self, left, right, op):
         """Initialize node."""
         super().__init__(left, right, op)
 
-    def _arith(self, left, right, il_code):
+    def arith(self, left, right, il_code):
         """Compare arithmetic expressions."""
         out = ILValue(ctypes.integer)
         il_code.add(self.comp_cmd(out, left, right))
         return out
 
-    def _nonarith(self, left, right, il_code):
+    def nonarith(self, left, right, il_code):
         """Compare non-arithmetic expressions."""
 
         if not left.ctype.is_pointer() or not right.ctype.is_pointer():
@@ -516,19 +593,19 @@ class Relational(ArithBinOp):
         return out
 
 
-class LessThan(Relational):
+class LessThan(Relational, ABC):
     comp_cmd = compare_cmds.LessCmp
 
 
-class GreaterThan(Relational):
+class GreaterThan(Relational, ABC):
     comp_cmd = compare_cmds.GreaterCmp
 
 
-class LessThanOrEq(Relational):
+class LessThanOrEq(Relational, ABC):
     comp_cmd = compare_cmds.LessOrEqCmp
 
 
-class GreaterThanOrEq(Relational):
+class GreaterThanOrEq(Relational, ABC):
     comp_cmd = compare_cmds.GreaterOrEqCmp
 
 
@@ -585,14 +662,12 @@ class BoolAndOr(RExprNode):
 
 class BoolAnd(BoolAndOr):
     """Expression that performs boolean and of two values."""
-
     jump_cmd = control_cmds.JumpZero
     initial_value = 1
 
 
 class BoolOr(BoolAndOr):
     """Expression that performs boolean or of two values."""
-
     jump_cmd = control_cmds.JumpNotZero
     initial_value = 0
 
@@ -624,8 +699,7 @@ class CompoundPlusMinus(RExprNode):
 
     # Command to execute to change the value of the variable.  Use math_cmds.Add for +=, math_cmds.Subtr for -=, etc.
     command = None
-    # True if this command should accept a pointer as left operand. Set this to
-    # True for += and -=, and false for all others.
+    # True if this command should accept a pointer as left operand.
     accept_pointer = False
 
     def __init__(self, left, right, op):
@@ -677,42 +751,36 @@ class CompoundPlusMinus(RExprNode):
 
 class PlusEquals(CompoundPlusMinus):
     """Expression that is +=."""
-
     command = math_cmds.Add
     accept_pointer = True
 
 
 class MinusEquals(CompoundPlusMinus):
     """Expression that is -=."""
-
     command = math_cmds.Subtr
     accept_pointer = True
 
 
 class StarEquals(CompoundPlusMinus):
     """Expression that is *=."""
-
     command = math_cmds.Mult
     accept_pointer = False
 
 
 class DivEquals(CompoundPlusMinus):
     """Expression that is /=."""
-
     command = math_cmds.Div
     accept_pointer = False
 
 
 class ModEquals(CompoundPlusMinus):
     """Expression that is %=."""
-
     command = math_cmds.Mod
     accept_pointer = False
 
 
 class BitwiseAndEquals(CompoundPlusMinus):
     """Expression that is &=."""
-
     command = math_cmds.BitwiseAnd
     accept_pointer = False
 
@@ -766,7 +834,6 @@ class IncrDecr(RExprNode):
 
 class PreIncr(IncrDecr):
     """Prefix increment."""
-
     descr = "increment"
     cmd = math_cmds.Add
     return_new = True
@@ -774,7 +841,6 @@ class PreIncr(IncrDecr):
 
 class PostIncr(IncrDecr):
     """Postfix increment."""
-
     descr = "increment"
     cmd = math_cmds.Add
     return_new = False
@@ -782,7 +848,6 @@ class PostIncr(IncrDecr):
 
 class PreDecr(IncrDecr):
     """Prefix decrement."""
-
     descr = "decrement"
     cmd = math_cmds.Subtr
     return_new = True
@@ -790,10 +855,80 @@ class PreDecr(IncrDecr):
 
 class PostDecr(IncrDecr):
     """Postfix decrement."""
-
     descr = "decrement"
     cmd = math_cmds.Subtr
     return_new = False
+
+
+class ArithUnOp(RExprNode):
+    """Base class for unary plus, minus, and bit-complement."""
+    descr = None
+    opnd_descr = "arithmetic"
+    cmd = None
+
+    def __init__(self, expr):
+        """Initialize node."""
+        super().__init__()
+        self.expr = expr
+
+    def make_il(self, il_code, symbol_table, c):
+        """Make code for this node."""
+        expr = self.expr.make_il(il_code, symbol_table, c)
+        if not self.check_type(expr):
+            err = f"{self.descr} requires {self.opnd_descr} type operand"
+            raise CompilerError(err, self.expr.r)
+        # perform integer promotion
+        if expr.ctype.size < 4:
+            expr = set_type(expr, ctypes.integer, il_code)
+        if self.cmd:
+            out = ILValue(expr.ctype)
+            # perform constant folding
+            if expr.literal:
+                val = self.arith_const(expr.literal.val, expr.ctype)
+                val = shift_into_range(val, expr.ctype)
+                il_code.register_literal_var(out, val)
+            else:
+                il_code.add(self.cmd(out, expr))
+            return out
+        return expr
+
+    def check_type(self, expr):
+        """Returns True if the argument has arithmetic type.
+        This default implementation can be overridden by derived classes if a different type is required.
+        """
+        return expr.ctype.is_arith()
+
+    def arith_const(self, expr, ctype):
+        """Return the result on compile-time constant operand."""
+        raise NotImplementedError
+
+
+class UnaryPlus(ArithUnOp, ABC):
+    """Positive."""
+    descr = "unary plus"
+
+
+class UnaryMinus(ArithUnOp, ABC):
+    """Negative."""
+    descr = "unary minus"
+    cmd = math_cmds.Neg
+
+    def arith_const(self, expr, ctype):
+        return -shift_into_range(expr, ctype)
+
+
+class Compl(ArithUnOp):
+    """Logical bitwise negative."""
+
+    descr = "bit-complement"
+    opnd_descr = "integral"
+    cmd = math_cmds.Not
+
+    def check_type(self, expr):
+        return expr.ctype.is_integral()
+
+    def arith_const(self, expr, ctype):
+        return ~shift_into_range(expr, ctype)
 
 
 class BoolNot(RExprNode):
@@ -832,6 +967,36 @@ class BoolNot(RExprNode):
         il_code.add(control_cmds.Label(end))
 
         return out
+
+
+class Cast(Declaration, RExprNode):
+    """Node representing a cast operation, like `(void*)p`.
+        node (decl_nodes.Root) - a declaration tree for this line
+    """
+
+    def __init__(self, node, expr):
+        Declaration.__init__(self, node)
+        RExprNode.__init__(self)
+
+        self.expr = expr
+
+    def make_il(self, il_code, symbol_table, c):
+        """Make IL for this cast operation."""
+
+        self.set_self_vars(il_code, symbol_table, c)
+        base_type, _ = self.make_specs_ctype(self.node.specs, False)
+        ctype, _ = self.make_ctype(self.node.decls[0], base_type)
+
+        if not ctype.is_void() and not ctype.is_scalar():
+            err = "can only cast to scalar or void type"
+            raise CompilerError(err, self.node.decls[0].r)
+
+        il_value = self.expr.make_il(il_code, symbol_table, c)
+        if not il_value.ctype.is_scalar():
+            err = "can only cast from scalar type"
+            raise CompilerError(err, self.r)
+
+        return set_type(il_value, ctype, il_code)
 
 
 class AddrOf(RExprNode):
@@ -873,41 +1038,22 @@ class Deref(LExprNode):
 class ArraySubsc(LExprNode):
     """Array subscript."""
 
-    def __init__(self, head, arg, op):
+    def __init__(self, head, arg):
         """Initialize node."""
         super().__init__()
         self.head = head
         self.arg = arg
-        self.op = op
 
     def _lvalue(self, il_code, symbol_table, c):
         """Return lvalue form of this node.
 
-        We have two main cases here. The first case covers most simple
-        situations, like `array[5]` or `array[x+3]`, and the second case
-        covers more complex situations like `array[4][2]` or an array
-        within a struct.
-
-        In the first case, one of the two operands is a DirectLValue array
-        (i.e. just a variable, not a lookup into another object). This
-        means it will have a spot in memory assigned to it by the register
-        allocator, and we can return a RelativeLValue object from this
-        function. This case corresponds to `matched` being True. A
-        RelativeLValue object usually becomes an assembly command like
-        `[rbp-40+3*rax]`, which is more efficient than manually computing
-        the address like happens in the second case.
-
-        In the second case, neither operand is a DirectLValue array. This is
-        the case for two-dimensional arrays, for example. Here, we proceed
-        naively and get the address for the pointer side. This is a little
-        bit less efficient. Ideally, in cases like `array[2][4]` where the
-        lookup address could be computed at compile-time, we'd be able to do
-        that, but this is not yet supported.
-
+        One of the two operands is a DirectLValue array (i.e. just a variable, not a lookup into another object). This
+        means it will have a spot in memory assigned to it by the register allocator, and we can return a RelativeLValue
+        object from this function. This case corresponds to `matched` being True. A RelativeLValue object usually
+        becomes an assembly command like `[ebp-40+3*eax]`, which is more efficient than manually computing the address.
         """
 
         # One operand should be pointer to complete object type, and the other should be any integer type.
-
         head_lv = self.head.lvalue(il_code, symbol_table, c)
         arg_lv = self.arg.lvalue(il_code, symbol_table, c)
 
@@ -961,27 +1107,26 @@ class ArraySubsc(LExprNode):
         return RelativeLValue(elem, array, elem.size, arith)
 
 
-class ObjLookup(LExprNode):
-    """Struct/union object lookup (. or ->)"""
+class ObjLookup(LExprNode, ABC):
+    """Struct object lookup (. or ->)"""
 
-    def __init__(self, head, member, tok):
+    def __init__(self, head, member):
         """Initialize node."""
         super().__init__()
         self.head = head
         self.member = member
-        self.tok = tok
 
     def get_offset_info(self, struct_ctype):
-        """Given a struct ctype, return the member offset and ctype. If the given ctype is None, emits the error for
-        requesting a member in something not a structure or union.
+        """Given a struct ctype, return the member offset and ctype.
+        If the given ctype is None, emits the error for requesting a member in something not a structure.
         """
-        if not struct_ctype or not struct_ctype.is_struct_union():
-            err = "request for member in something not a structure or union"
+        if not struct_ctype or not struct_ctype.is_struct():
+            err = "request for member in something not a structure"
             raise CompilerError(err, self.r)
 
         offset, ctype = struct_ctype.get_offset(self.member.content)
         if offset is None:
-            err = f"structure or union has no member '{self.member.content}'"
+            err = f"structure has no member '{self.member.content}'"
             raise CompilerError(err, self.r)
 
         if struct_ctype.is_const():
@@ -991,7 +1136,7 @@ class ObjLookup(LExprNode):
 
 
 class ObjMember(ObjLookup):
-    """Struct/union object member (. operator)"""
+    """Struct object member (. operator)"""
 
     def _lvalue(self, il_code, symbol_table, c):
         head_lv = self.head.lvalue(il_code, symbol_table, c)
@@ -1013,7 +1158,7 @@ class ObjMember(ObjLookup):
 
 
 class ObjPtrMember(ObjLookup):
-    """Struct/union pointer object member (-> operator)"""
+    """Struct pointer object member (-> operator)"""
 
     def _lvalue(self, il_code, symbol_table, c):
         struct_addr = self.head.make_il(il_code, symbol_table, c)
@@ -1036,12 +1181,12 @@ class FuncCall(RExprNode):
         args - List of expressions for each argument.
         tok - Opening parenthesis of this function call, for error reporting.
     """
-    def __init__(self, func, args, tok):
+
+    def __init__(self, func, args):
         """Initialize node."""
         super().__init__()
         self.func = func
         self.args = args
-        self.tok = tok
 
     def make_il(self, il_code, symbol_table, c):
         """Make code for this node."""
@@ -1056,35 +1201,31 @@ class FuncCall(RExprNode):
             descr = "function returns non-void incomplete type"
             raise CompilerError(descr, self.func.r)
 
-        if func.ctype.arg.no_info:
-            final_args = self._get_args_without_prototype(
-                il_code, symbol_table, c)
-        else:
-            final_args = self._get_args_with_prototype(
-                func.ctype.arg, il_code, symbol_table, c)
+        if func.ctype.arg.no_info: final_args = self.get_args_without_prototype(il_code, symbol_table, c)
+        else: final_args = self.get_args_with_prototype(func.ctype.arg, il_code, symbol_table, c)
 
         ret = ILValue(func.ctype.arg.ret)
         il_code.add(control_cmds.Call(func, final_args, ret))
         return ret
 
-    def _get_args_without_prototype(self, il_code, symbol_table, c):
-        """Return list of argument ILValues for function this represents. Use _get_args_without_prototype when the
-        function this represents has no prototype. This function only performs integer promotion on the arguments before
-        passing them to the called function.
+    def get_args_without_prototype(self, il_code, symbol_table, c):
+        """Return list of argument ILValues for function this represents. This function only performs integer promotion
+        on the arguments before passing them to the called function.
         """
         final_args = []
         for arg_given in self.args:
             arg = arg_given.make_il(il_code, symbol_table, c)
 
             # perform integer promotions
-            if arg.ctype.is_arith() and arg.ctype.size < 4: arg = set_type(arg, ctypes.integer, il_code)
+            if arg.ctype.is_arith() and arg.ctype.size < 4:
+                arg = set_type(arg, ctypes.integer, il_code)
 
             final_args.append(arg)
         return final_args
 
-    def _get_args_with_prototype(self, func_ctype, il_code, symbol_table, c):
-        """Return list of argument ILValues for function this represents. Use _get_args_with_prototype when the function
-        this represents has a prototype. This function converts all passed arguments to expected types.
+    def get_args_with_prototype(self, func_ctype, il_code, symbol_table, c):
+        """Return list of argument ILValues for function this represents. This function converts all passed arguments to
+        expected types.
         """
         arg_types = func_ctype.args
 
@@ -1092,8 +1233,10 @@ class FuncCall(RExprNode):
             err = ("incorrect number of arguments for function call"
                    f" (expected {len(arg_types)}, have {len(self.args)})")
 
-            if self.args: raise CompilerError(err, self.args[-1].r)
-            else: raise CompilerError(err, self.tok.r)
+            if self.args:
+                raise CompilerError(err, self.args[-1].r)
+            else:
+                raise CompilerError(err, self.r)
 
         final_args = []
         for arg_given, arg_type in zip(self.args, arg_types):

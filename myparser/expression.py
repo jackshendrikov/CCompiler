@@ -1,7 +1,8 @@
 """Parser logic that parses expression nodes."""
 
-from myparser.utils import (add_range, match_token, token_is, ParserError, raise_error)
+from myparser.utils import (add_range, match_token, token_is, ParserError, raise_error, log_error, token_in)
 import tree.expr_tree as expr_nodes
+import tree.decl_tree as decl_nodes
 import myparser.utils as p
 import token_kinds
 
@@ -81,6 +82,12 @@ def parse_bitwise_and(index):
 
 
 @add_range
+def parse_bitwise(index):
+    return parse_series(index, parse_additive, {token_kinds.lbitshift: expr_nodes.LBitShift,
+                                                token_kinds.rbitshift: expr_nodes.RBitShift})
+
+
+@add_range
 def parse_additive(index):
     """Parse additive expression."""
     return parse_series(index, parse_multiplicative, {token_kinds.plus: expr_nodes.Plus,
@@ -97,27 +104,38 @@ def parse_multiplicative(index):
 @add_range
 def parse_cast(index):
     """Parse cast expression."""
+    from myparser.declaration import (parse_abstract_declarator, parse_spec_qual_list)
+
+    with log_error():
+        match_token(index, token_kinds.open_paren, ParserError.AT)
+        specs, index = parse_spec_qual_list(index + 1)
+        node, index = parse_abstract_declarator(index)
+        match_token(index, token_kinds.close_paren, ParserError.AT)
+
+        decl_node = decl_nodes.Root(specs, [node])
+        expr_node, index = parse_cast(index + 1)
+        return expr_nodes.Cast(decl_node, expr_node), index
+
     return parse_unary(index)
 
 
 @add_range
 def parse_unary(index):
     """Parse unary expression."""
-    if token_is(index, token_kinds.incr):
-        node, index = parse_unary(index + 1)
-        return expr_nodes.PreIncr(node), index
-    elif token_is(index, token_kinds.decr):
-        node, index = parse_unary(index + 1)
-        return expr_nodes.PreDecr(node), index
-    elif token_is(index, token_kinds.amp):
-        node, index = parse_cast(index + 1)
-        return expr_nodes.AddrOf(node), index
-    elif token_is(index, token_kinds.star):
-        node, index = parse_cast(index + 1)
-        return expr_nodes.Deref(node), index
-    elif token_is(index, token_kinds.bool_not):
-        node, index = parse_cast(index + 1)
-        return expr_nodes.BoolNot(node), index
+
+    unary_args = {token_kinds.incr: (parse_unary, expr_nodes.PreIncr),
+                  token_kinds.decr: (parse_unary, expr_nodes.PreDecr),
+                  token_kinds.amp: (parse_cast, expr_nodes.AddrOf),
+                  token_kinds.star: (parse_cast, expr_nodes.Deref),
+                  token_kinds.bool_not: (parse_cast, expr_nodes.BoolNot),
+                  token_kinds.plus: (parse_cast, expr_nodes.UnaryPlus),
+                  token_kinds.minus: (parse_cast, expr_nodes.UnaryMinus),
+                  token_kinds.compl: (parse_cast, expr_nodes.Compl)}
+
+    if token_in(index, unary_args):
+        parse_func, NodeClass = unary_args[p.tokens[index].kind]
+        subnode, index = parse_func(index + 1)
+        return NodeClass(subnode), index
     else:
         return parse_postfix(index)
 
@@ -128,26 +146,22 @@ def parse_postfix(index):
     cur, index = parse_primary(index)
 
     while True:
-        if len(p.tokens) > index:
-            tok = p.tokens[index]
+        old_range = cur.r
 
         if token_is(index, token_kinds.open_sq_brack):
             index += 1
             arg, index = parse_expression(index)
-            cur = expr_nodes.ArraySubsc(cur, arg, tok)
+            cur = expr_nodes.ArraySubsc(cur, arg)
             match_token(index, token_kinds.close_sq_brack, ParserError.GOT)
             index += 1
 
-        elif (token_is(index, token_kinds.dot) or
-              token_is(index, token_kinds.arrow)):
+        elif token_is(index, token_kinds.dot) or token_is(index, token_kinds.arrow):
             index += 1
             match_token(index, token_kinds.identifier, ParserError.AFTER)
             member = p.tokens[index]
 
-            if tok.kind == token_kinds.dot:
-                cur = expr_nodes.ObjMember(cur, member, tok)
-            else:
-                cur = expr_nodes.ObjPtrMember(cur, member, tok)
+            if token_is(index - 1, token_kinds.dot): cur = expr_nodes.ObjMember(cur, member)
+            else: cur = expr_nodes.ObjPtrMember(cur, member)
 
             index += 1
 
@@ -156,21 +170,19 @@ def parse_postfix(index):
             index += 1
 
             if token_is(index, token_kinds.close_paren):
-                return expr_nodes.FuncCall(cur, args, tok), index + 1
+                return expr_nodes.FuncCall(cur, args), index + 1
 
             while True:
                 arg, index = parse_assignment(index)
                 args.append(arg)
 
-                if token_is(index, token_kinds.comma):
-                    index += 1
-                else:
-                    break
+                if token_is(index, token_kinds.comma): index += 1
+                else: break
 
             index = match_token(
                 index, token_kinds.close_paren, ParserError.GOT)
 
-            return expr_nodes.FuncCall(cur, args, tok), index
+            return expr_nodes.FuncCall(cur, args), index
 
         elif token_is(index, token_kinds.incr):
             index += 1
@@ -180,6 +192,8 @@ def parse_postfix(index):
             cur = expr_nodes.PostDecr(cur)
         else:
             return cur, index
+
+        cur.r = old_range + p.tokens[index - 1].r
 
 
 @add_range
@@ -191,7 +205,7 @@ def parse_primary(index):
         return expr_nodes.ParenExpr(node), index
     elif token_is(index, token_kinds.number):
         return expr_nodes.Number(p.tokens[index]), index + 1
-    elif token_is(index, token_kinds.identifier):
+    elif token_is(index, token_kinds.identifier) and not p.symbols.is_typedef(p.tokens[index]):
         return expr_nodes.Identifier(p.tokens[index]), index + 1
     elif token_is(index, token_kinds.string):
         return expr_nodes.String(p.tokens[index].content), index + 1
@@ -205,7 +219,9 @@ def parse_primary(index):
 def parse_series(index, parse_base, separators):
     """Parse a series of symbols joined together with given separator(s).
         index (int) - Index at which to start searching.
+
         parse_base (function) - A parse_* function that parses the base symbol.
+
         separators (Dict(TokenKind -> Node)) - The separators that join instances of the base symbol. Each separator
         corresponds to a Node, which is the Node produced to join two expressions connected with that separator.
     """

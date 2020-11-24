@@ -1,30 +1,12 @@
-"""Integration test driver for the compiler.
-This module defines metaclassis which generate test cases from files on disk,
-and a test class based off that metaclass. For each file that matches
-"tests/feature_tests/*.c", a feature test function is generated, and for
-each file that matches "tests/frontend_tests/*.c", a frontend test function
-is generated.
-If the C file contains a line of the form:
-// Return: ###
-Then, the test expects the main() in that test file to return the value
-"###". If no such line exists, the default expected return value is 0.
-If the C file contains line(s) of the form:
-// error: ____
-// warning: ____
-Then, the test expects compilation to raise an error or warning on the
-following line whose message is the string "____".
-"""
-
 from errors import error_collector
 import glob
-import subprocess
 import main
 import unittest
 
 
 def compile_with_jackshenc(test_file_name):
     """Compile given file with JackShenC. Errors are saved in the error collector."""
-    # Mock out arguments to JackShenC call
+
     class MockArguments:
         filename = test_file_name
         show_il = False
@@ -91,7 +73,6 @@ def new(glob_str, dct):
             self.assertListEqual(act_warnings, exp_warnings)
             self.assertListEqual(act_warning_lines, exp_warning_lines)
 
-            self.assertEqual(subprocess.call(["./out"]), ret_val)
 
         return test_function
 

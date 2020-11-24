@@ -3,7 +3,7 @@
 
 class ErrorCollector:
     """Class that accumulates all errors and warnings encountered. We create a global instance of this class so all
-    parts of the compiler can access it and add errors to it. This is kind of hacky, but it's much easier than passing
+    parts of the compiler can access it and add errors to it. This is kind of tricky, but it's much easier than passing
     an instance to every function that could potentially fail.
     """
 
@@ -14,6 +14,7 @@ class ErrorCollector:
     def add(self, issue):
         """Add the given error or warning (CompilerError) to list of errors."""
         self.issues.append(issue)
+        self.issues.sort()
 
     def ok(self):
         """Return True if there are no errors."""
@@ -36,7 +37,7 @@ class Position:
     """Class representing a position in source code.
         file (str) - Name of file in which this position is located.
         line (int) - Line number in file at which this position is located.
-        col (int) - Horizontal column at which this position is located
+        col (int) - Horizontal column at which this position is located.
         full_line (str) - Full text of the line containing this position.
     Specifically, full_line[col + 1] should be this position.
     """
@@ -62,7 +63,7 @@ class Range:
     def __init__(self, start, end=None):
         """Initialize Range objects."""
         self.start = start
-        self.end = end if end else start
+        self.end = end or start
 
     def __add__(self, other):
         """Add Range objects by concatenating their ranges."""
@@ -86,7 +87,7 @@ class CompilerError(Exception):
         self.span = span
         self.warning = warning
 
-    def __str__(self):  # pragma: no cover
+    def __str__(self):
         """Return a pretty-printable statement of the error. Also includes the line on which the error occurred."""
         error_color = "\x1B[31m"
         warn_color = "\x1B[33m"
@@ -122,3 +123,16 @@ class CompilerError(Exception):
         else:
             return (f"{bold_color}JackShenC: {color_code}{issue_type}:"
                     f"{reset_color} {self.descr}")
+
+    def __lt__(self, other):
+        """Provides sort order for printing errors."""
+
+        # everything without a range comes before everything with range
+        if not self.span: return bool(other.range)
+
+        # no opinion between errors in different files
+        if self.span.start.file != other.span.start.file: return False
+
+        this_tuple = self.span.start.line, self.span.start.col
+        other_tuple = other.span.start.line, other.span.start.col
+        return this_tuple < other_tuple

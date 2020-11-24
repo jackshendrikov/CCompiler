@@ -8,6 +8,8 @@ from tokens import Token
 from re import match
 import token_kinds
 
+STR_EX = []
+
 
 class Tagged:
     """Class representing tagged characters.
@@ -104,9 +106,18 @@ def tokenize_line(line, in_comment):
     block_start = 0
     block_end = 0
 
+    # Flag that is set True if the line begins with `#` and `include`, perhaps with comments and whitespace in between.
+    include_line = False
+    # Flag that is set True if the line is an include directive and the filename has been seen and successfully parsed.
+    seen_filename = False
+
     while block_end < len(line):
         symbol_kind = match_symbol_kind_at(line, block_end)
         next_ = match_symbol_kind_at(line, block_end + 1)
+
+        # Set include_line flag True as soon as a `#include` is detected.
+        if match_include_command(tokens):
+            include_line = True
 
         if in_comment:
             # If next characters end the comment...
@@ -134,10 +145,25 @@ def tokenize_line(line, in_comment):
             block_start = block_end + 1
             block_end = block_start
 
+        # If this is an include line, and not a comment or whitespace, expect the line to match an include filename.
+        elif include_line:
+            # If the filename has already been seen, there should be no more tokens.
+            if seen_filename:
+                descr = "extra tokens at end of include directive"
+                raise CompilerError(descr, line[block_end].r)
+
+            filename, end = read_include_filename(line, block_end)
+            tokens.append(Token(token_kinds.include_file, filename, r=Range(line[block_end].p, line[end].p)))
+
+            block_start = end + 1
+            block_end = block_start
+            seen_filename = True
+
         # If next character is a quote, we read the whole string as a token.
-        # We complain in the myparser if there are multiple characters in a character string.
         elif symbol_kind in {token_kinds.dquote, token_kinds.squote}:
             if symbol_kind == token_kinds.dquote:
+                global STR_EX
+                STR_EX.append(1)
                 quote_str = '"'
                 kind = token_kinds.string
                 add_null = True
@@ -212,6 +238,12 @@ def match_symbol_kind_at(content, start):
     return None
 
 
+def match_include_command(tokens):
+    """Check if end of `tokens` is a `#include` directive."""
+    return (len(tokens) == 2 and tokens[-2].kind == token_kinds.pound and
+            tokens[-1].kind == token_kinds.identifier and tokens[-1].content == "include")
+
+
 def read_string(line, start, delim, null):
     """Return a lexed string list in input characters. Also returns the index of the string end quote.
     line[start] should be the first character after the opening quote of the string to be lexed. This function continues
@@ -269,6 +301,32 @@ def read_string(line, start, delim, null):
         else:
             chars.append(ord(line[i].c))
             i += 1
+
+
+def read_include_filename(line, start):
+    """Read a filename that follows a #include directive.
+
+    Expects line[start] to be one of `<` or `"`, then reads characters until a matching symbol is reached. Then, returns
+    as a string the characters read including the initial and final symbol markers. The index returned is that of the
+    closing token in the filename.
+    """
+    if start < len(line) and line[start].c == '"': end = '"'
+    elif start < len(line) and line[start].c == "<": end = ">"
+    else:
+        descr = "expected \"FILENAME\" or <FILENAME> after include directive"
+        if start < len(line): char = line[start]
+        else: char = line[-1]
+
+        raise CompilerError(descr, char.r)
+
+    i = start + 1
+    try:
+        while line[i].c != end: i += 1
+    except IndexError:
+        descr = "missing terminating character for include filename"
+        raise CompilerError(descr, line[start].r)
+
+    return block_to_str(line[start:i + 1]), i
 
 
 def add_block(block, tokens):

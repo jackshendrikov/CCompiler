@@ -2,8 +2,11 @@
 
 from il_cmds.base import ILCommand
 from spots import LiteralSpot
+from lexer import STR_EX
 import asm_cmds
 import spots
+
+DIRECT_VAL = []
 
 
 class Label(ILCommand):
@@ -45,7 +48,7 @@ class Jump(ILCommand):
         asm_code.add(asm_cmds.Jmp(self.label))
 
 
-class _GeneralJump(ILCommand):
+class GeneralJump(ILCommand):
     """General class for jumping to a label based on condition."""
 
     # ASM command to output for this jump IL command.
@@ -79,15 +82,13 @@ class _GeneralJump(ILCommand):
         asm_code.add(self.command(self.label))
 
 
-class JumpZero(_GeneralJump):
+class JumpZero(GeneralJump):
     """Jumps to a label if given condition is zero."""
-
     command = asm_cmds.Je
 
 
-class JumpNotZero(_GeneralJump):
+class JumpNotZero(GeneralJump):
     """Jumps to a label if given condition is zero."""
-
     command = asm_cmds.Jne
 
 
@@ -109,18 +110,18 @@ class Return(ILCommand):
         return []
 
     def clobber(self):
-        return [spots.RAX]
+        return [spots.EAX]
 
-    def abs_spot_pref(self):
-        return {self.arg: [spots.RAX]}
+    def abs_spot_preference(self):
+        return {self.arg: [spots.EAX]}
 
     def make_asm(self, spotmap, home_spots, get_reg, asm_code):
-        if self.arg and spotmap[self.arg] != spots.RAX:
+        if self.arg and spotmap[self.arg] != spots.EAX:
             size = self.arg.ctype.size
-            asm_code.add(asm_cmds.Mov(spots.RAX, spotmap[self.arg], size))
+            asm_code.add(asm_cmds.Mov(spots.EAX, spotmap[self.arg], size))
 
-        asm_code.add(asm_cmds.Mov(spots.RSP, spots.RBP, 8))
-        asm_code.add(asm_cmds.Pop(spots.RBP, None, 8))
+        asm_code.add(asm_cmds.Mov(spots.ESP, spots.EBP, 8))
+        asm_code.add(asm_cmds.Pop(spots.EBP, None, 8))
         asm_code.add(asm_cmds.Ret())
 
 
@@ -132,7 +133,8 @@ class Call(ILCommand):
         return value.
     """
 
-    arg_regs = [spots.RDI, spots.RSI, spots.RDX, spots.RCX]
+    counter = 0
+    arg_regs = [spots.EDI, spots.ESI, spots.EDX, spots.ECX]
 
     def __init__(self, func, args, ret):
         self.func = func
@@ -140,8 +142,7 @@ class Call(ILCommand):
         self.ret = ret
         self.void_return = self.func.ctype.arg.ret.is_void()
 
-        if len(self.args) > len(self.arg_regs):
-            raise NotImplementedError("too many arguments")
+        if len(self.args) > len(self.arg_regs): raise NotImplementedError("too many arguments")
 
     def inputs(self):
         return [self.func] + self.args
@@ -151,26 +152,27 @@ class Call(ILCommand):
 
     def clobber(self):
         # All caller-saved registers are clobbered by function call
-        return [spots.RAX, spots.RCX, spots.RDX, spots.RSI, spots.RDI]
+        return [spots.EAX, spots.ECX, spots.EDX, spots.ESI, spots.EDI]
 
-    def abs_spot_pref(self):
-        prefs = {} if self.void_return else {self.ret: [spots.RAX]}
-        for arg, reg in zip(self.args, self.arg_regs):
-            prefs[arg] = [reg]
+    def abs_spot_preference(self):
+        prefs = {} if self.void_return else {self.ret: [spots.EAX]}
+        for arg, reg in zip(self.args, self.arg_regs): prefs[arg] = [reg]
 
         return prefs
 
-    def abs_spot_conf(self):
+    def abs_spot_conflict(self):
         # We don't want the function pointer to be in the same register as an argument will be placed into.
         return {self.func: self.arg_regs[0:len(self.args)]}
 
-    def indir_write(self):
+    def indirect_write(self):
         return self.args
 
-    def indir_read(self):
+    def indirect_read(self):
         return self.args
 
     def make_asm(self, spotmap, home_spots, get_reg, asm_code):
+        global DIRECT_VAL
+
         func_spot = spotmap[self.func]
 
         func_size = self.func.ctype.size
@@ -184,11 +186,14 @@ class Call(ILCommand):
             func_spot = r
 
         for arg, reg in zip(self.args, self.arg_regs):
-            if spotmap[arg] == reg:
-                continue
+            if spotmap[arg] == reg: continue
             asm_code.add(asm_cmds.Mov(reg, spotmap[arg], arg.ctype.size))
 
+        if len(STR_EX) > 1: DIRECT_VAL.append(spots.LiteralSpot('_ret' + str(Call.counter-1)))
         asm_code.add(asm_cmds.Call(func_spot, None, self.func.ctype.size))
+        if len(STR_EX) > 1:
+            asm_code.add(asm_cmds.Mov(DIRECT_VAL[Call.counter], func_spot, self.func.ctype.size))
+            Call.counter += 1
 
-        if not self.void_return and spotmap[self.ret] != spots.RAX:
-            asm_code.add(asm_cmds.Mov(spotmap[self.ret], spots.RAX, ret_size))
+        if not self.void_return and spotmap[self.ret] != spots.EAX:
+            asm_code.add(asm_cmds.Mov(spotmap[self.ret], spots.EAX, ret_size))

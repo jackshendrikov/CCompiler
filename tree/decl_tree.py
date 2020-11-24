@@ -30,23 +30,15 @@ class Root(DeclNode):
     """Represents a list of declaration specifiers and declarators.
         specs (List(Tokens/Nodes)) - list of the declaration specifiers, as tokens.
         decls (List(Node)) - list of declarator nodes.
-        ranges (List(Range)) - range of each declarator.
     """
 
-    def __init__(self, specs, decls, inits=None, ranges=None):
+    def __init__(self, specs, decls, inits=None):
         """Generate root node."""
         self.specs = specs
         self.decls = decls
 
-        if inits:
-            self.inits = inits
-        else:
-            self.inits = [None] * len(self.decls)
-
-        if ranges:
-            self.ranges = ranges
-        else:
-            self.ranges = [None] * len(self.decls)
+        if inits: self.inits = inits
+        else: self.inits = [None] * len(self.decls)
 
         super().__init__()
 
@@ -77,7 +69,7 @@ class Array(DeclNode):
 
 class Function(DeclNode):
     """Represents an function with given arguments and returning given type.
-        args (List(Node)) - arguments of the functions
+        args (List(Node)) - arguments of the functions.
     """
 
     def __init__(self, args, child):
@@ -88,7 +80,7 @@ class Function(DeclNode):
 
 
 class Identifier(DeclNode):
-    """Represents an identifier. If this is a type name and has no identifier, `identifier` is None. """
+    """Represents an identifier. If this is a type name and has no identifier, `identifier` is None."""
 
     def __init__(self, identifier):
         """Generate identifier node from an identifier token."""
@@ -98,9 +90,9 @@ class Identifier(DeclNode):
 
 class Struct(DeclNode):
     """Represents a struct.
-        tag (Token) - Token containing the tag of this structю
-        members (List(Node)) - List of decl_nodes nodes of struct members, or Noneю
-        r (Range) - range that the struct specifier coversю
+        tag (Token) - Token containing the tag of this struct.
+        members (List(Node)) - List of decl_nodes nodes of struct members, or None.
+        r (Range) - range that the struct specifier covers.
     """
 
     def __init__(self, tag, members, r):
