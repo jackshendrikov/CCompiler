@@ -1,4 +1,4 @@
-"""IL commands for labels, jumps, and function calls."""
+""" IL commands for labels, jumps, and function calls """
 
 from il_cmds.base import ILCommand
 from spots import LiteralSpot
@@ -10,10 +10,10 @@ DIRECT_VAL = []
 
 
 class Label(ILCommand):
-    """Label - Analogous to an ASM label."""
+    """ Label - Analogous to an ASM label """
 
     def __init__(self, label):
-        """The label argument is an string label name unique to this label."""
+        """ The label argument is an string label name unique to this label """
         self.label = label
 
     def inputs(self):
@@ -30,7 +30,7 @@ class Label(ILCommand):
 
 
 class Jump(ILCommand):
-    """Jumps unconditionally to a label."""
+    """ Jumps unconditionally to a label """
 
     def __init__(self, label):
         self.label = label
@@ -49,7 +49,7 @@ class Jump(ILCommand):
 
 
 class GeneralJump(ILCommand):
-    """General class for jumping to a label based on condition."""
+    """ General class for jumping to a label based on condition """
 
     # ASM command to output for this jump IL command.
     asm_cmd = None
@@ -83,17 +83,17 @@ class GeneralJump(ILCommand):
 
 
 class JumpZero(GeneralJump):
-    """Jumps to a label if given condition is zero."""
+    """ Jumps to a label if given condition is zero """
     command = asm_cmds.Je
 
 
 class JumpNotZero(GeneralJump):
-    """Jumps to a label if given condition is zero."""
+    """ Jumps to a label if given condition is zero """
     command = asm_cmds.Jne
 
 
 class Return(ILCommand):
-    """RETURN - returns the given value from function.
+    """ RETURN - returns the given value from function.
 
     If arg is None, then returns from the function without putting any value in the return register. Today, only
     supports values that fit in one register.

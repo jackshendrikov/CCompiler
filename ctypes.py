@@ -1,4 +1,4 @@
-"""This module defines all of the C types recognized by the compiler."""
+""" This module defines all of the C types recognized by the compiler """
 
 from abc import ABC
 import token_kinds
@@ -11,7 +11,7 @@ class CType:
     """
 
     def __init__(self, size, const=False):
-        """Initialize type."""
+        """ Initialize type """
         self.size = size
         self.const = const
 
@@ -28,73 +28,73 @@ class CType:
         raise NotImplementedError
 
     def is_complete(self):
-        """Check whether this is a complete type."""
+        """ Check whether this is a complete type """
         return False
 
     def is_incomplete(self):
-        """Check whether this is an incomplete type. An object type must be either complete or incomplete."""
+        """ Check whether this is an incomplete type. An object type must be either complete or incomplete """
         return False
 
     def is_object(self):
-        """Check whether this is an object type."""
+        """ Check whether this is an object type """
         return False
 
     def is_arith(self):
-        """Check whether this is an arithmetic type."""
+        """ Check whether this is an arithmetic type """
         return False
 
     def is_integral(self):
-        """Check whether this is an integral type."""
+        """ Check whether this is an integral type """
         return False
 
     def is_pointer(self):
-        """Check whether this is a pointer type."""
+        """ Check whether this is a pointer type """
         return False
 
     def is_function(self):
-        """Check whether this is a function type."""
+        """ Check whether this is a function type """
         return False
 
     def is_void(self):
-        """Check whether this is a void type."""
+        """ Check whether this is a void type """
         return False
 
     def is_bool(self):
-        """Check whether this is a boolean type."""
+        """ Check whether this is a boolean type """
         return self._bool
 
     def is_array(self):
-        """Check whether this is an array type."""
+        """ Check whether this is an array type """
         return False
 
     def is_struct(self):
-        """Check whether this has struct type."""
+        """ Check whether this has struct type """
         return False
 
     def make_unsigned(self):
-        """Return an unsigned version of this type."""
+        """ Return an unsigned version of this type """
         raise NotImplementedError
 
     def compatible(self, other):
-        """Check whether given `other` C type is compatible with self."""
+        """ Check whether given `other` C type is compatible with self """
         return self.weak_compat(other) and self.const == other.const
 
     def is_scalar(self):
-        """Check whether this has scalar type."""
+        """ Check whether this has scalar type """
         return self.is_arith() or self.is_pointer()
 
     def is_const(self):
-        """Check whether this is a const type."""
+        """ Check whether this is a const type """
         return self.const
 
     def make_const(self):
-        """Return a const version of this type."""
+        """ Return a const version of this type """
         const_self = copy.copy(self)
         const_self.const = True
         return const_self
 
     def make_unqual(self):
-        """Return an unqualified version of this type."""
+        """ Return an unqualified version of this type """
         unqual_self = copy.copy(self)
         unqual_self.const = False
         return unqual_self
@@ -108,55 +108,55 @@ class IntegerCType(CType):
     """
 
     def __init__(self, size, signed):
-        """Initialize type."""
+        """ Initialize type """
         self.signed = signed
         super().__init__(size)
 
     def weak_compat(self, other):
-        """Check whether two types are compatible."""
+        """ Check whether two types are compatible """
 
         return other._orig == self._orig and self.signed == other.signed and self.is_bool() == other.is_bool()
 
     def is_complete(self):
-        """Check if this is a complete type."""
+        """ Check if this is a complete type """
         return True
 
     def is_object(self):
-        """Check if this is an object type."""
+        """ Check if this is an object type """
         return True
 
     def is_arith(self):
-        """Check whether this is an arithmetic type."""
+        """ Check whether this is an arithmetic type """
         return True
 
     def is_integral(self):
-        """Check whether this is an integral type."""
+        """ Check whether this is an integral type """
         return True
 
     def make_unsigned(self):
-        """Return an unsigned version of this type."""
+        """ Return an unsigned version of this type """
         unsign_self = copy.copy(self)
         unsign_self.signed = False
         return unsign_self
 
 
 class VoidCType(CType, ABC):
-    """Represents a void C type. This class must be instantiated only once."""
+    """ Represents a void C type. This class must be instantiated only once """
 
     def __init__(self):
         """Initialize type."""
         super().__init__(1)
 
     def weak_compat(self, other):
-        """Return True iff other is a compatible type to self."""
+        """ Return True if other is a compatible type to self """
         return other.is_void()
 
     def is_incomplete(self):
-        """Check if this is a complete type."""
+        """ Check if this is a complete type """
         return True
 
     def is_void(self):
-        """Check whether this is a void type."""
+        """ Check whether this is a void type """
         return True
 
     def is_object(self):
@@ -169,24 +169,24 @@ class PointerCType(CType, ABC):
     """
 
     def __init__(self, arg, const=False):
-        """Initialize type."""
+        """ Initialize type """
         self.arg = arg
         super().__init__(8, const)
 
     def weak_compat(self, other):
-        """Return True iff other is a compatible type to self."""
+        """ Return True if other is a compatible type to self """
         return other.is_pointer() and self.arg.compatible(other.arg)
 
     def is_complete(self):
-        """Check if this is a complete type."""
+        """ Check if this is a complete type """
         return True
 
     def is_pointer(self):
-        """Check whether this is a pointer type."""
+        "" "Check whether this is a pointer type """
         return True
 
     def is_object(self):
-        """Check if this is an object type."""
+        """ Check if this is an object type """
         return True
 
 
@@ -197,29 +197,29 @@ class ArrayCType(CType, ABC):
     """
 
     def __init__(self, elem, n):
-        """Initialize type."""
+        """ Initialize type """
         self.elem = elem
         self.n = n
         super().__init__(n * self.elem.size)
 
     def compatible(self, other):
-        """Return True iff other is a compatible type to self."""
+        """ Return True if  other is a compatible type to self """
         return (other.is_array() and self.elem.compatible(other.elem) and
                 (self.n is None or other.n is None or self.n == other.n))
 
     def is_complete(self):
-        """Check if this is a complete type."""
+        """ Check if this is a complete type """
         return self.n is not None
 
     def is_incomplete(self):
         return not self.is_complete()
 
     def is_object(self):
-        """Check if this is an object type."""
+        """ Check if this is an object type """
         return True
 
     def is_array(self):
-        """Check whether this is an array type."""
+        """ Check whether this is an array type """
         return True
 
 
@@ -232,14 +232,14 @@ class FunctionCType(CType, ABC):
     """
 
     def __init__(self, args, ret, no_info):
-        """Initialize type."""
+        """ Initialize type """
         self.args = args
         self.ret = ret
         self.no_info = no_info
         super().__init__(1)
 
     def weak_compat(self, other):
-        """Return True if other is a compatible type to self."""
+        """ Return True if other is a compatible type to self """
 
         if not other.is_function(): return False
         elif not self.ret.compatible(other.ret): return False
@@ -250,7 +250,7 @@ class FunctionCType(CType, ABC):
         return True
 
     def is_function(self):
-        """Check if this is a function type."""
+        """ Check if this is a function type """
         return True
 
 
@@ -271,7 +271,7 @@ class StructCType(CType, ABC):
         super().__init__(1)
 
     def weak_compat(self, other):
-        """Return True iff other is a compatible type to self.
+        """Return True if other is a compatible type to self.
 
         Within a single translation unit, two structs are compatible iff
         they are the exact same declaration.
@@ -279,22 +279,22 @@ class StructCType(CType, ABC):
         return self._orig is other._orig
 
     def is_complete(self):
-        """Check whether this is a complete type."""
+        """ Check whether this is a complete type """
         return self.members is not None
 
     def is_incomplete(self):
         return not self.is_complete()
 
     def is_object(self):
-        """Check whether this is an object type."""
+        """ Check whether this is an object type """
         return True
 
     def is_struct(self):
-        """Check whether this has struct type."""
+        """ Check whether this has struct type """
         return True
 
     def get_offset(self, member):
-        """Get the offset and type of a given member. If the member does not exist, this function returns None tuple."""
+        """ Get the offset and type of a given member. If the member does not exist, this function returns None tuple """
         return self.offsets.get(member, (None, None))
 
     def set_members(self, members):

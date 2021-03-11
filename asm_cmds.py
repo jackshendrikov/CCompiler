@@ -23,7 +23,7 @@ class ASMCommand:
 
 
 class ASMCommandMultiSize:
-    """Base class for an ASMCommand which takes arguments of different sizes. For example, `movsx` and `movzx`."""
+    """ Base class for an ASMCommand which takes arguments of different sizes. For example, `movsx` and `movzx` """
 
     name = None
 
@@ -41,7 +41,7 @@ class ASMCommandMultiSize:
 
 
 class JumpCommand:
-    """Base class for jump commands."""
+    """ Base class for jump commands """
 
     name = None
 
@@ -54,7 +54,7 @@ class JumpCommand:
 
 
 class Comment:
-    """Class for comments."""
+    """ Class for comments """
 
     def __init__(self, msg):
         self.msg = msg
@@ -64,7 +64,7 @@ class Comment:
 
 
 class Label:
-    """Class for label."""
+    """ Class for label """
 
     def __init__(self, label):
         self.label = label
@@ -74,7 +74,7 @@ class Label:
 
 
 class LabelFunc:
-    """Class for start of function definition label."""
+    """ Class for start of function definition label """
 
     def __init__(self, label):
         self.label = label
@@ -84,7 +84,7 @@ class LabelFunc:
 
 
 class LabelEndFunc:
-    """Class for end of function label."""
+    """ Class for end of function label """
 
     def __init__(self, label):
         self.label = label
@@ -94,7 +94,7 @@ class LabelEndFunc:
 
 
 class Lea:
-    """Class for lea command."""
+    """ Class for lea command """
 
     name = "lea"
 

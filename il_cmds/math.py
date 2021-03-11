@@ -1,4 +1,4 @@
-"""IL commands for mathematical operations."""
+""" IL commands for mathematical operations """
 
 from il_cmds.base import ILCommand
 import asm_cmds
@@ -6,7 +6,7 @@ import spots
 
 
 class AddMult(ILCommand):
-    """Base class for ADD, MULT, and SUB."""
+    """ Base class for ADD, MULT, and SUB """
 
     # Indicates whether this instruction is commutative. If not, a "neg" instruction is inserted when the order is
     # flipped. Override this value in subclasses.
@@ -30,7 +30,7 @@ class AddMult(ILCommand):
         return {self.output: [self.arg1, self.arg2]}
 
     def make_asm(self, spotmap, home_spots, get_reg, asm_code):
-        """Make the ASM for ADD, MULT, and SUB."""
+        """ Make the ASM for ADD, MULT, and SUB """
         ctype = self.arg1.ctype
         size = ctype.size
 
@@ -41,42 +41,20 @@ class AddMult(ILCommand):
         temp = get_reg([spotmap[self.output], arg1_spot, arg2_spot])
 
         if temp == arg1_spot:
-            if not self.is_immediate64(arg2_spot):
-                asm_code.add(self.Inst(temp, arg2_spot, size))
-            else:
-                temp2 = get_reg([], [temp])
-                asm_code.add(asm_cmds.Mov(temp2, arg2_spot, size))
-                asm_code.add(self.Inst(temp, temp2, size))
+            asm_code.add(self.Inst(temp, arg2_spot, size))
         elif temp == arg2_spot:
-            if not self.is_immediate64(arg1_spot):
-                asm_code.add(self.Inst(temp, arg1_spot, size))
-            else:
-                temp2 = get_reg([], [temp])
-                asm_code.add(asm_cmds.Mov(temp2, arg1_spot, size))
-                asm_code.add(self.Inst(temp, temp2, size))
-
+            asm_code.add(self.Inst(temp, arg1_spot, size))
             if not self.comm: asm_code.add(asm_cmds.Neg(temp, None, size))
 
         else:
-            if not self.is_immediate64(arg1_spot) and not self.is_immediate64(arg2_spot):
-                asm_code.add(asm_cmds.Mov(temp, arg1_spot, size))
-                asm_code.add(self.Inst(temp, arg2_spot, size))
-            elif self.is_immediate64(arg1_spot) and not self.is_immediate64(arg2_spot):
-                asm_code.add(asm_cmds.Mov(temp, arg1_spot, size))
-                asm_code.add(self.Inst(temp, arg2_spot, size))
-            elif not self.is_immediate64(arg1_spot) and self.is_immediate64(arg2_spot):
-                asm_code.add(asm_cmds.Mov(temp, arg2_spot, size))
-                asm_code.add(self.Inst(temp, arg1_spot, size))
-                if not self.comm: asm_code.add(asm_cmds.Neg(temp, None, size))
-
-            else:  # both are imm64
-                raise NotImplementedError("never reach because of constant folding")
+            asm_code.add(asm_cmds.Mov(temp, arg1_spot, size))
+            asm_code.add(self.Inst(temp, arg2_spot, size))
 
         if temp != spotmap[self.output]: asm_code.add(asm_cmds.Mov(spotmap[self.output], temp, size))
 
 
 class BitwiseAnd(AddMult):
-    """BitwiseAnd - make bitwise AND operation with arg1 and arg2, then saves to output.
+    """ BitwiseAnd - make bitwise AND operation with arg1 and arg2, then saves to output.
      IL values output, arg1, arg2 must all have the same type. No type conversion or promotion is done here.
      """
     comm = True
@@ -84,7 +62,7 @@ class BitwiseAnd(AddMult):
 
 
 class Add(AddMult):
-    """Adds arg1 and arg2, then saves to output.
+    """ Adds arg1 and arg2, then saves to output.
     IL values output, arg1, arg2 must all have the same type. No type conversion or promotion is done here.
     """
     comm = True
@@ -92,7 +70,7 @@ class Add(AddMult):
 
 
 class Subtr(AddMult):
-    """Subtracts arg1 and arg2, then saves to output.
+    """ Subtracts arg1 and arg2, then saves to output.
     ILValues output, arg1, and arg2 must all have types of the same size.
     """
     comm = False
@@ -100,7 +78,7 @@ class Subtr(AddMult):
 
 
 class Mult(AddMult):
-    """Multiplies arg1 and arg2, then saves to output.
+    """ Multiplies arg1 and arg2, then saves to output.
     IL values output, arg1, arg2 must all have the same type. No type conversion or promotion is done here.
     """
     comm = True
@@ -108,7 +86,7 @@ class Mult(AddMult):
 
 
 class BitShiftCmd(ILCommand):
-    """Base class for bitwise shift commands."""
+    """ Base class for bitwise shift commands """
 
     # The ASM instruction to generate for this command. Override this value in subclasses.
     Inst = None
@@ -158,19 +136,19 @@ class BitShiftCmd(ILCommand):
 
 
 class RBitShift(BitShiftCmd):
-    """Right bitwise shift operator for IL value.
+    """ Right bitwise shift operator for IL value.
     Shifts each bit in IL value left operand to the right by position indicated by right operand."""
     Inst = asm_cmds.Sar
 
 
 class LBitShift(BitShiftCmd):
-    """Left bitwise shift operator for IL value.
+    """ Left bitwise shift operator for IL value.
     Shifts each bit in IL value left operand to the left by position indicated by right operand."""
     Inst = asm_cmds.Sal
 
 
 class DivMod(ILCommand):
-    """Base class for ILCommand Div and Mod."""
+    """ Base class for ILCommand Div and Mod """
 
     return_reg = None
 
@@ -233,7 +211,7 @@ class DivMod(ILCommand):
 
 
 class Div(DivMod):
-    """Divides given IL values.
+    """ Divides given IL values.
     IL values output, arg1, arg2 must all have the same type of size at least int. No type conversion or promotion is
     done here.
     """
@@ -241,7 +219,7 @@ class Div(DivMod):
 
 
 class Mod(DivMod):
-    """Divides given IL values.
+    """ Divides given IL values.
     IL values output, arg1, arg2 must all have the same type of size at least int. No type conversion or promotion is
     done here.
     """
@@ -249,7 +227,7 @@ class Mod(DivMod):
 
 
 class NegNot(ILCommand):
-    """Base class for NEG and NOT."""
+    """ Base class for NEG and NOT """
 
     # The ASM instruction to generate for this command. Override this value in subclasses.
     Inst = None
@@ -278,10 +256,10 @@ class NegNot(ILCommand):
 
 
 class Neg(NegNot):
-    """Negates given IL value (two's complement)."""
+    """ Negates given IL value """
     Inst = asm_cmds.Neg
 
 
 class Not(NegNot):
-    """Logically negates each bit of given IL value (one's complement)."""
+    """ Logically negates each bit of given IL value """
     Inst = asm_cmds.Not

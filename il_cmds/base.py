@@ -1,24 +1,22 @@
-"""Base ILCommand interface definition."""
+""" Base ILCommand interface definition """
 
 from spots import LiteralSpot
 import ctypes
 
 
 class ILCommand:
-    """Base interface for all IL commands."""
+    """ Base interface for all IL commands """
 
     def inputs(self):
-        """Return list of ILValues used as input for this command."""
+        """ Return list of ILValues used as input for this command """
         raise NotImplementedError
 
     def outputs(self):
-        """Return list of values output by this command.
-        No command executed after this one should rely on the previous value of any ILValue in the list returned here.
-        """
+        """ Return list of values output by this command """
         raise NotImplementedError
 
     def clobber(self):
-        """Return list of Spots this command may clobber, other than outputs.
+        """ Return list of Spots this command may clobber, other than outputs.
 
         Every Spot this command may change the value at (not including the Spots of the outputs returned above) must be
         included in the return list of this function. For example, signed division clobbers EAX and EDX.
@@ -26,7 +24,7 @@ class ILCommand:
         return []
 
     def rel_spot_conflict(self):
-        """Return the relative conflict list of this command.
+        """ Return the relative conflict list of this command.
 
         This function returns a dictionary mapping an ILValue to a list of ILValues. If this contains a key value pair
         k: [t1, t2], then the register allocator will attempt to place ILValue k in a different spot than t1 and t2.
@@ -35,7 +33,7 @@ class ILCommand:
         return {}
 
     def abs_spot_conflict(self):
-        """Return the absolute conflict list of this command.
+        """ Return the absolute conflict list of this command.
 
         This function returns a dictionary mapping an ILValue to a list of spots. If this contains a key value pair
         k: [s1, s2], then the register allocator will attempt to place ILValue k in a spot which is not s1 or s2.
@@ -43,7 +41,7 @@ class ILCommand:
         return {}
 
     def rel_spot_preference(self):
-        """Return the relative spot preference list (RSPL) for this command.
+        """ Return the relative spot preference list (RSPL) for this command.
 
         A RSPL is a dictionary mapping an ILValue to a list of ILValues. For each key k in the RSPL, the register
         allocator will attempt to place k in the same spot as an ILValue in RSPL[k] is placed. RSPL[k] is ordered by
@@ -53,7 +51,7 @@ class ILCommand:
         return {}
 
     def abs_spot_preference(self):
-        """Return the absolute spot preference list (ASPL) for this command.
+        """ Return the absolute spot preference list (ASPL) for this command.
 
         An ASPL is a dictionary mapping an ILValue to a list of Spots. For each key k in ASPL, the register allocator
         will attempt to place k in one of the spots listed in ASPL[k]. ASPL[k] is ordered by  preference; that is,
@@ -62,7 +60,7 @@ class ILCommand:
         return {}
 
     def references(self):
-        """Return the potential reference list (PRL) for this command.
+        """ Return the potential reference list (PRL) for this command.
 
         The PRL is a dictionary mapping an ILValue to a list of ILValues. If this command may directly set some ILValue
         k to be a pointer to other ILValue(s) v1, v2, etc., then PRL[k] must include v1, v2, etc. That is, suppose the
@@ -74,7 +72,7 @@ class ILCommand:
         return {}
 
     def indirect_write(self):
-        """Return list of values that may be dereferenced for indirect write.
+        """ Return list of values that may be dereferenced for indirect write.
 
         For example, suppose this list is [t1, t2]. Then, this command may be changing the value of the ILValue pointed
         to by t1 or the value of the ILValue pointed to by t2.
@@ -82,7 +80,7 @@ class ILCommand:
         return []
 
     def indirect_read(self):
-        """Return list of values that may be dereferenced for indirect read.
+        """R eturn list of values that may be dereferenced for indirect read.
 
         For example, suppose this list is [t1, t2]. Then, this command may be reading the value of the ILValue pointed
         to by t1 or the value of the ILValue pointed to by t2.
@@ -90,15 +88,15 @@ class ILCommand:
         return []
 
     def label_name(self):
-        """If this command is a label, return its name."""
+        """ If this command is a label, return its name."""
         return None
 
     def targets(self):
-        """Return list of any labels to which this command may jump."""
+        """ Return list of any labels to which this command may jump."""
         return []
 
     def make_asm(self, spotmap, home_spots, get_reg, asm_code):
-        """Generate assembly code for this command.
+        """ Generate assembly code for this command.
 
             spotmap - Dictionary mapping every input and output ILValue to a spot.
 
@@ -116,15 +114,9 @@ class ILCommand:
 
     @staticmethod
     def is_immediate(spot):
-        """Return True if given spot is an immediate operand."""
+        """ Return True if given spot is an immediate operand """
         return isinstance(spot, LiteralSpot)
 
     def is_immediate8(self, spot):
-        """Return True if given spot is a 8-bit immediate operand."""
+        """ Return True if given spot is a 8-bit immediate operand """
         return self.is_immediate(spot) and int(spot.detail) < ctypes.unsign_char_max
-
-    @staticmethod
-    def is_immediate64(spot):
-        """Return True if given spot is a 64-bit immediate operand."""
-        return (isinstance(spot, LiteralSpot) and (int(spot.detail) > ctypes.int_max or
-                                                   int(spot.detail) < ctypes.int_min))

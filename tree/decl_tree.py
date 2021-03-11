@@ -22,7 +22,7 @@ import token_kinds
 
 
 class DeclNode:
-    """Base class for all decl_nodes nodes."""
+    """ Base class for all decl_nodes nodes """
     pass
 
 
@@ -44,7 +44,7 @@ class Root(DeclNode):
 
 
 class Pointer(DeclNode):
-    """Represents a pointer to a type."""
+    """ Represents a pointer to a type """
 
     def __init__(self, child, const):
         """Generate pointer node.
@@ -80,10 +80,10 @@ class Function(DeclNode):
 
 
 class Identifier(DeclNode):
-    """Represents an identifier. If this is a type name and has no identifier, `identifier` is None."""
+    """ Represents an identifier. If this is a type name and has no identifier, `identifier` is None """
 
     def __init__(self, identifier):
-        """Generate identifier node from an identifier token."""
+        """ Generate identifier node from an identifier token """
         self.identifier = identifier
         super().__init__()
 

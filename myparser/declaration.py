@@ -1,4 +1,4 @@
-"""Parser logic that parses declaration nodes."""
+""" Parser logic that parses declaration nodes """
 
 from myparser.utils import (add_range, ParserError, match_token, token_is, raise_error, log_error, token_in)
 from errors import error_collector, CompilerError
@@ -27,9 +27,8 @@ def parse_func_definition(index):
 
 @add_range
 def parse_declaration(index):
-    """Parse a declaration into a tree.nodes.Declaration node.
-        Example:
-            int *a, (*b)[], c
+    """ Parse a declaration into a tree.
+        Example: int *a, (*b)[], c
     """
     node, index = parse_decls_inits(index)
     return nodes.Declaration(node), index
@@ -41,10 +40,6 @@ def parse_declarator(index, is_typedef=False):
 
     A declarator is the part of a declaration that comes after the declaration specifiers (int, static, etc.) but before
     any initializers. For example, in `int extern func()` the declarator is `func()`.
-
-    This function parses both declarators and abstract declarators. For abstract declarators, the Identifier node at the
-    leaf of the generated tree has the identifier None. If you want to parse an abstract declarator only, and produce an
-    error if the result is a non-abstract declarator, use the parse_abstract_declarator function instead.
 
     Returns a decl_nodes.Node and index.
     """
@@ -113,10 +108,10 @@ def parse_decls_inits(index, parse_inits=True):
 
 
 def parse_decl_specifiers(index, spec_qual=False):
-    """Parse a declaration specifier.
-        Examples: int / const char
-    The returned `specs` list may contain two types of elements: tokens and Node objects. A Node object will be included
-    for a struct declaration, and a token for all other declaration specifiers.
+    """ Parse a declaration specifier.
+        Examples: int/const char
+    The returned `specs` list may contain two types of elements: tokens and Node objects.
+    A Node object will be included for a struct declaration, and a token for all other declaration specifiers.
     """
     type_specs = set(ctypes.simple_types.keys())
     type_specs |= {token_kinds.signed_kw, token_kinds.unsigned_kw}
@@ -177,14 +172,14 @@ def parse_decl_specifiers(index, spec_qual=False):
 
 
 def parse_spec_qual_list(index):
-    """Parse a specifier-qualifier list. This function saves a CompilerError if any declaration specifiers are provided
+    """ Parse a specifier-qualifier list. This function saves a CompilerError if any declaration specifiers are provided
     that are not type specifiers or type qualifiers.
     """
     return parse_decl_specifiers(index, True)
 
 
 def parse_parameter_list(index):
-    """Parse a function parameter list. Returns a list of decl_nodes arguments and the index right after the last
+    """ Parse a function parameter list. Returns a list of decl_nodes arguments and the index right after the last
     argument token. This index should be the index of a closing parenthesis, but that check is left to the caller.
         index - index right past the opening parenthesis.
     """
@@ -212,14 +207,14 @@ def parse_parameter_list(index):
 
 @add_range
 def parse_struct(index):
-    """Parse a struct specifier as a decl_nodes.Struct node.
+    """ Parse a struct specifier as a decl_nodes.Struct node.
         index - index right past the `struct` keyword.
     """
     return parse_struct_spec(index, decl_nodes.Struct)
 
 
 def parse_struct_members(index):
-    """Parse the list of members of struct as a list of Root nodes.
+    """ Parse the list of members of struct as a list of Root nodes.
         index - index right past the open bracket starting the members list.
     """
     members = []
@@ -254,7 +249,7 @@ def find_pair_forward(index, open_=token_kinds.open_paren, close=token_kinds.clo
 
 def find_pair_backward(index, open_=token_kinds.open_paren, close=token_kinds.close_paren,
                        mess="mismatched parentheses in declaration"):
-    """Find the opening parenthesis for the closing at given index. Same parameters as _find_pair_forward above."""
+    """ Find the opening parenthesis for the closing at given index. Same parameters as _find_pair_forward above """
     depth = 0
     for i in range(index, -1, -1):
         if p.tokens[i].kind == close: depth += 1
@@ -268,7 +263,7 @@ def find_pair_backward(index, open_=token_kinds.open_paren, close=token_kinds.cl
 
 
 def find_decl_end(index):
-    """Find the end of the declarator that starts at given index.
+    """ Find the end of the declarator that starts at given index.
 
     If a valid declarator starts at the given index, this function is guaranteed to return the correct end point.
     Returns an index one greater than the last index in this declarator.
@@ -289,7 +284,7 @@ def find_decl_end(index):
 
 
 def _parse_declarator(start, end, is_typedef):
-    """Parse the given tokens that comprises a declarator.
+    """ Parse the given tokens that comprises a declarator.
 
     This function parses both declarator and abstract-declarators. For an abstract declarator, the Identifier node at
     the leaf of the generated tree has the identifier None.
@@ -339,7 +334,7 @@ def parse_declarator_raw(start, end, is_typedef):
 
 
 def try_parse_func_decl(start, end, is_typedef=False):
-    """Parse a function declarator between start and end. Expects that tokens[end-1] is a close parenthesis.
+    """ Parse a function declarator between start and end. Expects that tokens[end-1] is a close parenthesis.
     If a function declarator is successfully parsed, returns the decl_node.Function object. Otherwise, returns None.
     """
     if not token_is(end - 1, token_kinds.close_paren): return None
@@ -354,7 +349,7 @@ def try_parse_func_decl(start, end, is_typedef=False):
 
 
 def find_const(index):
-    """Check for a continuous sequence of `const`.
+    """ Check for a continuous sequence of `const`.
     Returns a tuple containing a boolean for whether any such `const` sequence exists and the first index that is not a
     `const`. If no `const` is found, returns the index passed in for the second argument.
     """
@@ -366,7 +361,7 @@ def find_const(index):
 
 
 def parse_struct_spec(index, node_type):
-    """Parse a struct specifier. A struct specifier includes everything between the `struct` keyword to the end of the
+    """ Parse a struct specifier. A struct specifier includes everything between the `struct` keyword to the end of the
     member list if one exists.
         index - index right past the type definition keyword.
         node_type - either decl_nodes.Struct.

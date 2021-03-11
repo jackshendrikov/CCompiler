@@ -1,4 +1,4 @@
-"""Objects used for the AST -> IL phase of the compiler."""
+""" Objects used for the AST -> IL phase of the compiler """
 
 import il_cmds.control as control_cmds
 from collections import namedtuple
@@ -15,7 +15,7 @@ class ILCode:
     """
 
     def __init__(self):
-        """Initialize IL code."""
+        """ Initialize IL code """
         self.commands = {}
         self.cur_func = None
         self.label_num = 0
@@ -36,7 +36,7 @@ class ILCode:
         return new
 
     def start_func(self, func):
-        """Start a new function in the IL code. Call start_func before generating code for a new function."""
+        """ Start a new function in the IL code. Call start_func before generating code for a new function """
         self.cur_func = func
         self.commands[func] = []
 
@@ -47,7 +47,7 @@ class ILCode:
         self.commands[self.cur_func].append(command)
 
     def always_returns(self):
-        """Return true if this function ends in a return command."""
+        """ Return true if this function ends in a return command """
         return self.commands[self.cur_func] and isinstance(self.commands[self.cur_func][-1], control_cmds.Return)
 
     def register_literal_var(self, il_value, value):
@@ -74,7 +74,7 @@ class ILCode:
 
     @staticmethod
     def get_label():
-        """Return a unique label identifier string."""
+        """ Return a unique label identifier string """
         # Kind of tricky. Ideally, we would return labels here that were unique to the ILCode, and then when generating
         # the ASM code, assign each ILCode label to an ASM code label.
 
@@ -84,13 +84,13 @@ class ILCode:
 
 
 class ILValue:
-    """Value that appears as an element in generated IL code.
+    """ Value that appears as an element in generated IL code.
         ctype (CType) - C type of this value.
         literal_val - the value of this IL value if it represents a literal value. 
     """
 
     def __init__(self, ctype, null_ptr_const=False):
-        """Initialize IL value."""
+        """ Initialize IL value """
         self.null_ptr_const = null_ptr_const
         self.ctype = ctype
         self.literal = None
@@ -103,19 +103,19 @@ class ILValue:
 
 
 class Literal:
-    """Base class for integer literals, string literals, etc."""
+    """ Base class for integer literals, string literals, etc """
     def __init__(self, val):
         self.val = val
 
 
 class IntegerLiteral(Literal):
-    """Class for integer literals."""
+    """ Class for integer literals """
     def __init__(self, val):
         super().__init__(int(val))
 
 
 class StringLiteral(Literal):
-    """Class for string literals."""
+    """ Class for string literals """
     def __init__(self, val):
         super().__init__(str(val))
 
@@ -169,11 +169,11 @@ class SymbolTable:
         self.new_scope()
 
     def new_scope(self):
-        """Initialize a new scope for the symbol table."""
+        """ Initialize a new scope for the symbol table """
         self.tables.append(self.Tables(dict(), dict()))
 
     def end_scope(self):
-        """End the most recently started scope."""
+        """ End the most recently started scope """
         self.tables.pop()
 
     def lookup_raw(self, name):
@@ -197,7 +197,7 @@ class SymbolTable:
             raise CompilerError(descr, identifier.r)
 
     def lookup_linkage(self, identifier):
-        """Return the linkage of identifier. If identifier doesn't exist or has no linkage, returns None."""
+        """ Return the linkage of identifier. If identifier doesn't exist or has no linkage, returns None """
         return self.linkage_type.get(self.lookup_raw(identifier.content))
 
     def add_variable(self, identifier, ctype, defined, linkage, storage):
@@ -252,7 +252,7 @@ class SymbolTable:
         return var
 
     def lookup_struct(self, tag):
-        """Look up struct by tag name and return its ctype object. If not found, returns None. """
+        """ Look up struct by tag name and return its ctype object. If not found, returns None """
         for _, structs in self.tables[::-1]:
             if tag in structs: return structs[tag]
 
@@ -266,7 +266,7 @@ class SymbolTable:
         return self.tables[-1].structs[tag]
 
     def add_typedef(self, identifier, ctype):
-        """Add a type definition to the symbol table."""
+        """ Add a type definition to the symbol table """
 
         name = identifier.content
         if name in self.tables[-1].vars:
@@ -283,7 +283,7 @@ class SymbolTable:
         self.tables[-1].vars[name] = ctype
 
     def lookup_typedef(self, identifier):
-        """Look up a typedef from the symbol table. If not found, raises an exception."""
+        """ Look up a typedef from the symbol table. If not found, raises an exception """
         ctype = self.lookup_raw(identifier.content)
         if isinstance(ctype, CType):
             return ctype
@@ -313,32 +313,32 @@ class Context:
     """
 
     def __init__(self):
-        """Initialize Context."""
+        """ Initialize Context """
         self.break_label = None
         self.continue_label = None
         self.return_type = None
         self.is_global = False
 
     def set_global(self, val):
-        """Return copy of self with is_global set to given value."""
+        """ Return copy of self with is_global set to given value """
         c = copy(self)
         c.is_global = val
         return c
 
     def set_break(self, lab):
-        """Return copy of self with break_label set to given value."""
+        """ Return copy of self with break_label set to given value """
         c = copy(self)
         c.break_label = lab
         return c
 
     def set_continue(self, lab):
-        """Return copy of self with break_label set to given value."""
+        """ Return copy of self with break_label set to given value """
         c = copy(self)
         c.continue_label = lab
         return c
 
     def set_return(self, ctype):
-        """Return copy of self with return_type set to given value."""
+        """ Return copy of self with return_type set to given value """
         c = copy(self)
         c.return_type = ctype
         return c

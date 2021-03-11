@@ -1,11 +1,8 @@
-"""Main executable for JackShenC compiler. For usage, run "./main.py --help"."""
+""" Main executable for JackShenC compiler. For usage, run "./main.py --help" """
 
-import subprocess
 import argparse
 import sys
-
 import lexer
-import preproc
 
 from errors import error_collector, CompilerError
 from il_gen import ILCode, SymbolTable, Context
@@ -14,7 +11,7 @@ from asm_gen import ASMCode, MASMCode, ASMGen
 
 
 def main():
-    """Run the main compiler script."""
+    """ Run the main compiler script """
 
     arguments = get_arguments()
 
@@ -25,12 +22,6 @@ def main():
         return 1
 
     token_list = lexer.tokenize(code, filename)
-    if not error_collector.ok():
-        error_collector.show()
-        input("\nPress Any Key To Exit...")
-        return 1
-
-    token_list = preproc.process(token_list, filename)
     if not error_collector.ok():
         error_collector.show()
         input("\nPress Any Key To Exit...")
@@ -62,30 +53,19 @@ def main():
     asm_code, masm_code = ASMCode(), MASMCode()
     ASMGen(il_code, symbol_table, asm_code, arguments).make_asm()
     ASMGen(il_code, symbol_table, masm_code, arguments).make_asm()
-    asm_source, masm_source = asm_code.full_code(), masm_code.full_code()
+    masm_source = masm_code.full_code()
 
     if not error_collector.ok():
         error_collector.show()
         input("\nPress Any Key To Exit...")
         return 1
 
-    masm_filename = "РГР-25-Python-IO-82-Shendrikov.asm"
+    masm_filename = "TestProgram.asm"
     write_asm(masm_source, masm_filename)
     if not error_collector.ok():
         error_collector.show()
         input("\nPress Any Key To Exit...")
         return 1
-
-    # asm_filename = "out.s"
-    # write_asm(asm_source, asm_filename)
-    # if not error_collector.ok():
-    #     error_collector.show()
-    #     return 1
-    #
-    # assemble_and_link("out", asm_filename, "out.o")
-    # if not error_collector.ok():
-    #     error_collector.show()
-    #     return 1
 
     error_collector.show()
     # print("Token list: ", token_list)
@@ -120,7 +100,7 @@ def get_arguments():
     parser.add_argument("-variables-on-stack", help="allocate all variables on the stack",
                         dest="variables_on_stack", action="store_true")
 
-    parser.set_defaults(filename="РГР-25-Python-IO-82-Shendrikov.c")
+    parser.set_defaults(filename="TestProgram.c")
     parser.set_defaults(show_il=False)
     parser.set_defaults(show_tokens=False)
     parser.set_defaults(show_tree=False)
@@ -129,7 +109,7 @@ def get_arguments():
 
 
 def read_file(arguments):
-    """Read the file(s) in arguments and return the file contents."""
+    """ Read the file(s) in arguments and return the file contents """
     try:
         with open(arguments.filename) as c_file:
             return c_file.read(), arguments.filename
@@ -149,26 +129,6 @@ def write_asm(asm_source, asm_filename):
     except IOError:
         descr = "could not write output file '{}'"
         error_collector.add(CompilerError(descr.format(asm_filename)))
-
-
-def assemble_and_link(binary_name, asm_name, obj_name):
-    """Assemble and link the assembly file into an object file and binary. If the assembly/linking fails,
-    raise an exception.
-        binary_name (str) - Name of the binary file to output.
-        asm_name (str) - Name of the assembly file to read in.
-        obj_name (str) - Name of the obj file to output.
-    """
-    try:
-        subprocess.check_call(["nasm", "-f", "elf64", "-o", obj_name, asm_name])
-    except subprocess.CalledProcessError:
-        error_collector.add(CompilerError("assembler returned non-zero status"))
-    else:
-        try:
-            subprocess.check_call(["ld", "-dynamic-linker", "/lib64/ld-linux-x86-64.so.2",
-                                   "/usr/lib/x86_64-linux-gnu/crt1.o", "/usr/lib/x86_64-linux-gnu/crti.o",
-                                   "-lc", obj_name, "/usr/lib/x86_64-linux-gnu/crtn.o", "-o", binary_name])
-        except subprocess.CalledProcessError:
-            error_collector.add(CompilerError("linker returned non-zero status"))
 
 
 if __name__ == "__main__":

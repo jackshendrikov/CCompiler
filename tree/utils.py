@@ -1,4 +1,4 @@
-"""Utility objects for the AST nodes and IL generation steps of JackShenC."""
+""" Utility objects for the AST nodes and IL generation steps of JackShenC """
 
 from errors import CompilerError, error_collector
 from contextlib import contextmanager
@@ -10,7 +10,7 @@ import ctypes
 
 
 class LValue:
-    """Represents an LValue."""
+    """ Represents an LValue """
 
     def ctype(self):
         """Return the ctype that is stored by this LValue. For example, if this LValue represents a dereferenced pointer
@@ -28,15 +28,15 @@ class LValue:
         raise NotImplementedError
 
     def addr(self, il_code):
-        """Generate code for and return address of this lvalue."""
+        """ Generate code for and return address of this lvalue """
         raise NotImplementedError
 
     def val(self, il_code):
-        """Generate code for and return the value currently stored."""
+        """ Generate code for and return the value currently stored """
         raise NotImplementedError
 
     def modable(self):
-        """Return whether this is a modifiable lvalue."""
+        """ Return whether this is a modifiable lvalue """
 
         ctype = self.ctype()
         if ctype.is_array(): return False
@@ -53,7 +53,7 @@ class DirectLValue(LValue):
     """
 
     def __init__(self, il_value):
-        """Initialize DirectLValue with the IL value it represents."""
+        """ Initialize DirectLValue with the IL value it represents """
         self.il_value = il_value
 
     def ctype(self):
@@ -183,7 +183,7 @@ class RelativeLValue(LValue):
 
 @contextmanager
 def report_err():
-    """Catch and add any errors to error collector."""
+    """ Catch and add any errors to error collector """
     try: yield
     except CompilerError as e: error_collector.add(e)
 
@@ -296,7 +296,7 @@ def arith_conversion_type(type1, type2):
 
 
 def arith_convert(left, right, il_code):
-    """Cast two arithmetic ILValues to a common converted type."""
+    """ Cast two arithmetic ILValues to a common converted type """
     ctype = arith_conversion_type(left.ctype, right.ctype)
     return set_type(left, ctype, il_code), set_type(right, ctype, il_code)
 
@@ -317,7 +317,7 @@ def get_size(ctype, num, il_code):
 
 
 def shift_into_range(val, ctype):
-    """Shift a numerical value into range for given integral ctype."""
+    """ Shift a numerical value into range for given integral ctype """
 
     if ctype.signed:
         max_val = 1 << (ctype.size * 8 - 1)

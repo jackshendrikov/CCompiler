@@ -1,4 +1,4 @@
-"""The token kinds currently recognized."""
+""" The token kinds currently recognized """
 
 from tokens import TokenKind
 

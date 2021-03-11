@@ -1,4 +1,4 @@
-"""Nodes in the AST which represent statements or declarations."""
+""" Nodes in the AST which represent statements or declarations """
 
 from ctypes import PointerCType, ArrayCType, FunctionCType, StructCType
 from tree.utils import DirectLValue, report_err, set_type, check_cast
@@ -12,10 +12,10 @@ import ctypes
 
 
 class Node:
-    """Base class for representing a single node in the AST. All AST nodes inherit from this class."""
+    """ Base class for representing a single node in the AST. All AST nodes inherit from this class """
 
     def __init__(self):
-        """Initialize node."""
+        """ Initialize node """
 
         # Set range to None because it will be set by the myparser.
         self.r = None
@@ -30,15 +30,15 @@ class Node:
 
 
 class Root(Node):
-    """Root node of the program."""
+    """ Root node of the program """
 
     def __init__(self, nodes):
-        """Initialize node."""
+        """ Initialize node """
         super().__init__()
         self.nodes = nodes
 
     def make_il(self, il_code, symbol_table, c):
-        """Make code for the root."""
+        """ Make code for the root """
         for node in self.nodes:
             with report_err():
                 c = c.set_global(True)
@@ -46,10 +46,10 @@ class Root(Node):
 
 
 class Compound(Node):
-    """Node for a compound statement."""
+    """ Node for a compound statement """
 
     def __init__(self, items):
-        """Initialize node."""
+        """ Initialize node """
         super().__init__()
         self.items = items
 
@@ -70,15 +70,15 @@ class Compound(Node):
 
 
 class Return(Node):
-    """Node for a return statement."""
+    """ Node for a return statement """
 
     def __init__(self, return_value):
-        """Initialize node."""
+        """ Initialize node """
         super().__init__()
         self.return_value = return_value
 
     def make_il(self, il_code, symbol_table, c):
-        """Make IL code for returning this value."""
+        """ Make IL code for returning this value """
 
         if self.return_value and not c.return_type.is_void():
             il_value = self.return_value.make_il(il_code, symbol_table, c)
@@ -96,7 +96,7 @@ class Return(Node):
 
 
 class BreakContinue(Node):
-    """Node for a break or continue statement."""
+    """ Node for a break or continue statement """
 
     # Function which accepts a dummy variable and Context and returns the label to which to jump when this statement is
     # encountered.
@@ -105,11 +105,11 @@ class BreakContinue(Node):
     descr = None
 
     def __init__(self):
-        """Initialize node."""
+        """ Initialize node """
         super().__init__()
 
     def make_il(self, il_code, symbol_table, c):
-        """Make IL code for returning this value."""
+        """ Make IL code for returning this value """
         label = self.get_label(c)
         if label:
             il_code.add(control_cmds.Jump(label))
@@ -120,39 +120,39 @@ class BreakContinue(Node):
 
 
 class Break(BreakContinue):
-    """Node for a break statement."""
+    """ Node for a break statement """
     get_label = lambda _, c: c.break_label
     descr = "break"
 
 
 class Continue(BreakContinue):
-    """Node for a continue statement."""
+    """ Node for a continue statement """
     get_label = lambda _, c: c.continue_label
     descr = "continue"
 
 
 class EmptyStatement(Node):
-    """Node for a statement which is just a semicolon."""
+    """ Node for a statement which is just a semicolon """
 
     def __init__(self):
-        """Initialize node."""
+        """ Initialize node """
         super().__init__()
 
     def make_il(self, il_code, symbol_table, c):
-        """Nothing to do for a blank statement."""
+        """ Nothing to do for a blank statement """
         pass
 
 
 class ExprStatement(Node):
-    """Node for a statement which contains one expression."""
+    """ Node for a statement which contains one expression """
 
     def __init__(self, expr):
-        """Initialize node."""
+        """ Initialize node """
         super().__init__()
         self.expr = expr
 
     def make_il(self, il_code, symbol_table, c):
-        """Make code for this expression, and ignore the resulting ILValue."""
+        """ Make code for this expression, and ignore the resulting ILValue """
         self.expr.make_il(il_code, symbol_table, c)
 
 
@@ -164,7 +164,7 @@ class IfStatement(Node):
     """
 
     def __init__(self, cond, stat, else_stat):
-        """Initialize node."""
+        """ Initialize node """
         super().__init__()
 
         self.cond = cond
@@ -172,7 +172,7 @@ class IfStatement(Node):
         self.else_stat = else_stat
 
     def make_il(self, il_code, symbol_table, c):
-        """Make code for this if statement."""
+        """ Make code for this if statement """
 
         endif_label = il_code.get_label()
         with report_err():
@@ -200,13 +200,13 @@ class WhileStatement(Node):
     """
 
     def __init__(self, cond, stat):
-        """Initialize node."""
+        """ Initialize node """
         super().__init__()
         self.cond = cond
         self.stat = stat
 
     def make_il(self, il_code, symbol_table, c):
-        """Make code for this node."""
+        """ Make code for this node """
         start = il_code.get_label()
         end = il_code.get_label()
 
@@ -231,13 +231,13 @@ class DoWhileStatement(Node):
     """
 
     def __init__(self, cond, stat):
-        """Initialize node."""
+        """ Initialize node """
         super().__init__()
         self.cond = cond
         self.stat = stat
 
     def make_il(self, il_code, symbol_table, c):
-        """Make code for this node."""
+        """ Make code for this node """
         start = il_code.get_label()
         end = il_code.get_label()
 
@@ -264,7 +264,7 @@ class ForStatement(Node):
     """
 
     def __init__(self, first, second, third, stat):
-        """Initialize node."""
+        """ Initialize node """
         super().__init__()
         self.first = first
         self.second = second
@@ -272,7 +272,7 @@ class ForStatement(Node):
         self.stat = stat
 
     def make_il(self, il_code, symbol_table, c):
-        """Make code for this node."""
+        """ Make code for this node """
         symbol_table.new_scope()
         if self.first:
             self.first.make_il(il_code, symbol_table, c)
@@ -365,7 +365,7 @@ class DeclInfo:
             raise CompilerError(err, self.span)
 
     def process_typedef(self, symbol_table):
-        """Process type declarations."""
+        """ Process type declarations """
 
         if self.init:
             err = "typedef cannot have initializer"
@@ -378,7 +378,7 @@ class DeclInfo:
         symbol_table.add_typedef(self.identifier, self.ctype)
 
     def do_init(self, var, storage, il_code, symbol_table, c):
-        """Create code for initializing given variable. Caller must check that this object has an initializer."""
+        """ Create code for initializing given variable. Caller must check that this object has an initializer """
 
         init = self.init.make_il(il_code, symbol_table, c)
         if storage == symbol_table.STATIC and not init.literal:
@@ -395,7 +395,7 @@ class DeclInfo:
             raise CompilerError(err, self.span)
 
     def do_body(self, il_code, symbol_table, c):
-        """Create code for function body. Caller must check that this function has a body."""
+        """ Create code for function body. Caller must check that this function has a body """
         is_main = self.identifier.content == "main"
 
         for param in self.param_names:
@@ -452,7 +452,7 @@ class DeclInfo:
                 raise CompilerError(err, self.span)
 
     def get_linkage(self, symbol_table, c):
-        """Get linkage type for given decl_info object."""
+        """ Get linkage type for given decl_info object """
         if c.is_global and self.storage == DeclInfo.STATIC: linkage = symbol_table.INTERNAL
         elif self.storage == DeclInfo.EXTERN:
             cur_linkage = symbol_table.lookup_linkage(self.identifier)
@@ -464,7 +464,7 @@ class DeclInfo:
         return linkage
 
     def get_defined(self, symbol_table, c):
-        """Determine whether this is a definition."""
+        """ Determine whether this is a definition """
         if c.is_global and self.storage in {None, self.STATIC} and self.ctype.is_object() and not self.init:
             return symbol_table.TENTATIVE
         elif self.storage == self.EXTERN and not (self.init or self.body): return symbol_table.UNDEFINED
@@ -472,7 +472,7 @@ class DeclInfo:
         else: return symbol_table.DEFINED
 
     def get_storage(self, defined, linkage, symbol_table):
-        """Determine the storage duration."""
+        """ Determine the storage duration """
         if defined == symbol_table.UNDEFINED or not self.ctype.is_object(): storage = None
         elif linkage or self.storage == self.STATIC: storage = symbol_table.STATIC
         else: storage = symbol_table.AUTOMATIC
@@ -487,13 +487,13 @@ class Declaration(Node):
     """
 
     def __init__(self, node, body=None):
-        """Initialize node."""
+        """ Initialize node """
         super().__init__()
         self.node = node
         self.body = body
 
     def make_il(self, il_code, symbol_table, c):
-        """Make code for this declaration."""
+        """ Make code for this declaration """
 
         self.set_self_vars(il_code, symbol_table, c)
         decl_infos = self.get_decl_infos(self.node)
@@ -502,11 +502,10 @@ class Declaration(Node):
                 info.process(il_code, symbol_table, c)
 
     def set_self_vars(self, il_code, symbol_table, c):
-        """Set il_code, symbol_table, and context as attributes of self.
+        """ Set il_code, symbol_table, and context as attributes of self.
 
         Helper function to prevent us from having to pass these three
         arguments into almost all functions in this class.
-
         """
         self.il_code = il_code
         self.symbol_table = symbol_table
@@ -542,7 +541,7 @@ class Declaration(Node):
         return self.make_ctype(decl.child, new_ctype)
 
     def generate_array_ctype(self, decl, prev_ctype):
-        """Generate a function ctype from a given a decl_node."""
+        """ Generate a function ctype from a given a decl_node """
 
         if decl.n:
             il_value = decl.n.make_il(self.il_code, self.symbol_table, self.c)
@@ -563,7 +562,7 @@ class Declaration(Node):
             return ArrayCType(prev_ctype, None)
 
     def generate_func_ctype(self, decl, prev_ctype):
-        """Generate a function ctype from a given a decl_node."""
+        """ Generate a function ctype from a given a decl_node """
 
         # Prohibit storage class specifiers in parameters.
         for param in decl.args:
@@ -602,7 +601,7 @@ class Declaration(Node):
         return new_ctype
 
     def extract_params(self, decl):
-        """Return the parameter list for this function."""
+        """ Return the parameter list for this function """
 
         identifiers = []
         func_decl = None
@@ -658,7 +657,7 @@ class Declaration(Node):
 
     @staticmethod
     def get_base_ctype(specs, spec_span):
-        """Return a base ctype given a list of specs."""
+        """ Return a base ctype given a list of specs """
 
         base_specs = set(ctypes.simple_types)
         base_specs |= {token_kinds.signed_kw, token_kinds.unsigned_kw}
@@ -707,7 +706,7 @@ class Declaration(Node):
 
     @staticmethod
     def get_storage(spec_kinds, spec_span):
-        """Determine the storage class from given specifier token kinds. If no storage class is listed, returns None."""
+        """ Determine the storage class from given specifier token kinds. If no storage class is listed, returns None """
         storage_classes = {token_kinds.auto_kw: DeclInfo.AUTO,
                            token_kinds.static_kw: DeclInfo.STATIC,
                            token_kinds.extern_kw: DeclInfo.EXTERN,
@@ -784,7 +783,7 @@ class Declaration(Node):
 
     @staticmethod
     def check_struct_member_decl_info(decl_info, kind, members):
-        """Check whether given decl_info object is a valid struct member."""
+        """ Check whether given decl_info object is a valid struct member """
 
         if decl_info.identifier is None:
             err = f"missing name of {kind} member"

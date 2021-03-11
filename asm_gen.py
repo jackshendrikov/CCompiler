@@ -1,4 +1,4 @@
-"""Objects for the IL->ASM stage of the compiler."""
+""" Objects for the IL->ASM stage of the compiler """
 
 from spots import Spot, RegSpot, MemSpot, LiteralSpot
 from il_cmds.control import DIRECT_VAL
@@ -14,7 +14,7 @@ class ASMCode:
     """
 
     def __init__(self):
-        """Initialize ASMCode."""
+        """ Initialize ASMCode """
         self.lines, self.globals, self.data, self.output, self.string_literals, self.invokes = [], [], [], [], [], []
 
     def add(self, cmd):
@@ -59,20 +59,6 @@ class ASMCode:
         data = ",".join(str(char) for char in chars)
         self.string_literals.append(f"\t.byte {data}")
 
-    def full_code(self):
-        """Produce the full assembly code.
-            return (str) - The assembly code, ready for saving to disk and assembling.
-        """
-
-        header = self.data
-        if self.string_literals:
-            header += ["\tSECTION .data"] + self.string_literals + [""]
-
-        header += ["\tSECTION .text"] + self.globals + ["\tglobal main", "", "main:"]
-        header += [str(line) for line in self.lines]
-
-        return "\n".join(header)
-
 
 class MASMCode(ASMCode):
     def full_code(self):
@@ -97,10 +83,10 @@ class MASMCode(ASMCode):
                   "includelib \\masm32\\lib\\masm32.lib",
                   "includelib \\masm32\\lib\\kernel32.lib",
                   "includelib \\masm32\\lib\\user32.lib\n",
-                  ".data"] + self.data + ["Caption db \"РОЗРАХУНКОВА РОБОТА\", 0", "Output db   \"" + "—" * 18 +
+                  ".data"] + self.data + ["Caption db \"Test Program\", 0", "Output db   \"" + "—" * 18 +
                                           "\", 0ah,\n\t\t\t\"|" + " " * 25 + " RESULT " + " " * 25 +
                                           "|\", 0ah,\n\t\t\t\"" + "—" * 18 + "\", 0ah, 0ah,"] + sorted(self.output) + \
-                 ["\t\t\t\"Author: Shendrikov Yevhenii, IO-82\", 0", "StrBuf dw ?, 0"]
+                 ["\t\t\t\"Author: Shendrikov Yevhenii\", 0", "StrBuf dw ?, 0"]
 
         if self.string_literals:
             header += self.string_literals + [""]
@@ -130,38 +116,38 @@ class NodeGraph:
     """
 
     def __init__(self, nodes=None):
-        """Initialize NodeGraph."""
+        """ Initialize NodeGraph """
         self._real_nodes = nodes if nodes else []
         self._all_nodes = self._real_nodes[:]
         self._conf = {n: [] for n in self._all_nodes}
         self._pref = {n: [] for n in self._all_nodes}
 
     def is_node(self, n):
-        """Check whether given node is in the graph."""
+        """ Check whether given node is in the graph """
         return n in self._conf and n in self._pref
 
-    def add_dummy_node(self, v):
-        """Add a dummy node to graph."""
+    def add_imitation_node(self, v):
+        """ Add a imitation node to graph """
         self._all_nodes.append(v)
         self._conf[v] = []
         self._pref[v] = []
 
-        # Dummy nodes must mutually conflict
+        # Imitation nodes must mutually conflict
         for n in self._all_nodes:
             if n not in self._real_nodes and n != v: self.add_conflict(n, v)
 
     def add_conflict(self, n1, n2):
-        """Add a conflict edge between n1 and n2."""
+        """ Add a conflict edge between n1 and n2 """
         if n2 not in self._conf[n1]: self._conf[n1].append(n2)
         if n1 not in self._conf[n2]: self._conf[n2].append(n1)
 
     def add_pref(self, n1, n2):
-        """Add a preference edge between n1 and n2."""
+        """ Add a preference edge between n1 and n2 """
         if n2 not in self._pref[n1]: self._pref[n1].append(n2)
         if n1 not in self._pref[n2]: self._pref[n2].append(n1)
 
     def pop(self, n):
-        """Remove and return node n from this graph."""
+        """ Remove and return node n from this graph """
         del self._conf[n]
         del self._pref[n]
 
@@ -211,28 +197,28 @@ class NodeGraph:
         self._all_nodes.remove(n2)
 
     def remove_pref(self, n1, n2):
-        """Remove the preference edge between n1 and n2."""
+        """ Remove the preference edge between n1 and n2 """
         self._pref[n1].remove(n2)
         self._pref[n2].remove(n1)
 
     def prefs(self, n):
-        """Return the list of nodes to which n has a preference edge."""
+        """ Return the list of nodes to which n has a preference edge """
         return self._pref[n]
 
     def confs(self, n):
-        """Return the list of nodes with which n has a conflict edge."""
+        """ Return the list of nodes with which n has a conflict edge """
         return self._conf[n]
 
     def nodes(self):
-        """Return the real nodes currently in this graph."""
+        """ Return the real nodes currently in this graph """
         return self._real_nodes
 
     def all_nodes(self):
-        """Return all nodes in this graph, including pseudonodes."""
+        """ Return all nodes in this graph, including pseudonodes """
         return self._all_nodes
 
     def copy(self):
-        """Return a deep copy of this graph, but with same ILValue objects."""
+        """ Return a deep copy of this graph, but with same ILValue objects """
         g = NodeGraph()
 
         g._real_nodes = self._real_nodes[:]
@@ -244,7 +230,7 @@ class NodeGraph:
         return g
 
     def __str__(self):
-        """Return this graph as a string for debugging purposes."""
+        """ Return this graph as a string for debugging purposes """
         return ("Conf\n" + "\n".join(str((v, self._conf[v])) for v in self._all_nodes)
                 + "\nPref\n" + "\n".join(str((v, self._pref[v])) for v in self._all_nodes))
 
@@ -264,7 +250,7 @@ class ASMGen:
     all_registers = alloc_registers
 
     def __init__(self, il_code, symbol_table, asm_code, arguments):
-        """Initialize ASMGen."""
+        """ Initialize ASMGen """
         self.il_code = il_code
         self.symbol_table = symbol_table
         self.asm_code = asm_code
@@ -273,7 +259,7 @@ class ASMGen:
         self.offset = 0
 
     def make_asm(self):
-        """Generate ASM code."""
+        """ Generate ASM code """
 
         global_spotmap = self.get_global_spotmap()
 
@@ -293,7 +279,7 @@ class ASMGen:
         # else: self.asm_code.output.append("\t\t\t\"Program Result: %d\", 0ah, 0ah,")
 
     def _make_asm(self, commands, global_spotmap):
-        """Generate ASM code for given command list."""
+        """ Generate ASM code for given command list """
 
         # Get free values
         free_values = self.get_free_values(commands, global_spotmap)
@@ -544,12 +530,12 @@ class ASMGen:
                 for s in command.abs_spot_conflict()[n]:
                     if n in free_values:
                         if s not in g.all_nodes():
-                            g.add_dummy_node(s)
+                            g.add_imitation_node(s)
                         g.add_conflict(n, s)
 
             # Clobber set of this command
             for s in command.clobber():
-                if s not in g.all_nodes(): g.add_dummy_node(s)
+                if s not in g.all_nodes(): g.add_imitation_node(s)
 
                 # Add a conflict with dummy node for every variable live during both entry and exit from this command.
                 for n in live_vars[i][0]:
@@ -564,7 +550,7 @@ class ASMGen:
             for v in command.abs_spot_preference():
                 for s in command.abs_spot_preference()[v]:
                     if v in free_values:
-                        if s not in g.all_nodes(): g.add_dummy_node(s)
+                        if s not in g.all_nodes(): g.add_imitation_node(s)
                         g.add_pref(v, s)
         return g
 
@@ -590,7 +576,7 @@ class ASMGen:
         return did_something
 
     def simplify_once(self, nodes, g):
-        """Remove and return a node in nodes if it has low conflict degree."""
+        """ Remove and return a node in nodes if it has low conflict degree """
         for v in nodes:
             # If the node has low conflict degree remove it from the graph
             if len(g.confs(v)) < len(self.alloc_registers):
@@ -669,7 +655,7 @@ class ASMGen:
         return False
 
     def generate_spotmap(self, removed_nodes, merged_nodes, g):
-        """Pop values off stack to generate spot assignments."""
+        """ Pop values off stack to generate spot assignments """
 
         # Get a set of nodes which interfere with n or anything merged into it
         def get_conflicts(n):
@@ -713,7 +699,7 @@ class ASMGen:
         return spotmap
 
     def generate_asm(self, commands, live_vars, spotmap):
-        """Generate assembly code."""
+        """ Generate assembly code """
 
         max_offset = max(spot.rbp_offset() for spot in spotmap.values())
         if max_offset % 16 != 0: max_offset += 16 - max_offset % 16

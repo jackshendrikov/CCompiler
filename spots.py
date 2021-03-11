@@ -1,4 +1,4 @@
-"""The Spot object definition and some predefined spots, like registers."""
+""" The Spot object definition and some predefined spots, like registers """
 
 
 class Spot:
@@ -8,7 +8,7 @@ class Spot:
     """
 
     def __init__(self, detail):
-        """Initialize a spot."""
+        """ Initialize a spot """
         self.detail = detail
 
     def asm_str(self, size):
@@ -17,7 +17,7 @@ class Spot:
             Examples:
                 spots.EAX.asm_str(4) -> "eax"
                 spots.EAX.asm_str(8) -> "eax" -> actually "rax", but for MASM32 I changed it.
-                spot(STACK, -16).asm_str(4) -> "DWORD [rbp-16]"
+                spot(STACK, -16).asm_str(4) -> "DWORD [ebp-16]"
                 spot(LITERAL, 14).asm_str(4) -> "14"
             size (int) - Size in bytes of the data stored at this spot.
             return (str) - ASM form of this spot.
@@ -43,19 +43,19 @@ class Spot:
         return self.detail
 
     def __eq__(self, other):
-        """Test equality by comparing Spot type and detail."""
+        """ Test equality by comparing Spot type and detail """
         if self.__class__.__name__ != other.__class__.__name__:
             return False
 
         return self.detail == other.detail
 
     def __hash__(self):
-        """Hash based on type and detail."""
+        """ Hash based on type and detail """
         return hash((self.__class__.__name__, self.detail))
 
 
 class RegSpot(Spot):
-    """Spot representing a machine register."""
+    """ Spot representing a machine register """
 
     # Mapping from the 32-bit register name to the 32-bit, 16-bit and 8-bit register names for each register.
     reg_map = {"eax": ["eax", "eax", "ax", "al"],

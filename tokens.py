@@ -22,7 +22,7 @@ class TokenKind:
         kinds.sort(key=lambda kind: -len(kind.text_repr))
 
     def __str__(self):
-        """Return the representation of this token kind."""
+        """ Return the representation of this token kind """
         return self.text_repr
 
 
@@ -39,7 +39,7 @@ class Token:
     """
 
     def __init__(self, kind, content="", rep="", r=None):
-        """Initialize this token."""
+        """ Initialize this token """
         self.kind = kind
 
         self.content = content if content else str(self.kind)
@@ -47,12 +47,12 @@ class Token:
         self.r = r
 
     def __eq__(self, other):
-        """Require equality of both token kind and content."""
+        """ Require equality of both token kind and content """
         return self.kind == other.kind and self.content == other.content
 
     def __repr__(self):
         return self.content
 
     def __str__(self):
-        """Return the token content."""
+        """ Return the token content """
         return self.rep if self.rep else self.content

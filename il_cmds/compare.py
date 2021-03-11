@@ -1,4 +1,4 @@
-"""IL commands for comparisons."""
+""" IL commands for comparisons """
 
 from spots import MemSpot, LiteralSpot
 from il_cmds.base import ILCommand
@@ -6,7 +6,7 @@ import asm_cmds
 
 
 class GeneralCmp(ILCommand):
-    """GeneralCmp - base class for the comparison commands.
+    """ GeneralCmp - base class for the comparison commands.
     IL value output must have int type. arg1, arg2 must have types that can be compared for equality bit-by-bit.
     """
     signed_cmp_cmd = None
@@ -27,7 +27,7 @@ class GeneralCmp(ILCommand):
         return {self.output: [self.arg1, self.arg2]}
 
     def fix_both_literal_or_mem(self, arg1_spot, arg2_spot, regs, get_reg, asm_code):
-        """Fix arguments if both are literal or memory. Adds any called registers to given regs list. Returns tuple
+        """ Fix arguments if both are literal or memory. Adds any called registers to given regs list. Returns tuple
         where first element is new spot of arg1 and second element is new spot of arg2.
         """
         if ((isinstance(arg1_spot, LiteralSpot) and isinstance(arg2_spot, LiteralSpot)) or
@@ -40,26 +40,8 @@ class GeneralCmp(ILCommand):
         else:
             return arg1_spot, arg2_spot
 
-    def fix_either_literal64(self, arg1_spot, arg2_spot, regs, get_reg, asm_code):
-        """Move any 64-bit immediate operands to register."""
-
-        if self.is_immediate64(arg1_spot):
-            size = self.arg1.ctype.size
-            new_arg1_spot = get_reg([], regs + [arg2_spot])
-            asm_code.add(asm_cmds.Mov(new_arg1_spot, arg1_spot, size))
-            return new_arg1_spot, arg2_spot
-
-        # We cannot have both cases because _fix_both_literal is called before this.
-        elif self.is_immediate64(arg2_spot):
-            size = self.arg2.ctype.size
-            new_arg2_spot = get_reg([], regs + [arg1_spot])
-            asm_code.add(asm_cmds.Mov(new_arg2_spot, arg2_spot, size))
-            return arg1_spot, new_arg2_spot
-        else:
-            return arg1_spot, arg2_spot
-
     def fix_literal_wrong_order(self, arg1_spot, arg2_spot):
-        """If the first operand is a literal, swap the operands."""
+        """ If the first operand is a literal, swap the operands """
         if self.is_immediate(arg1_spot):
             return arg2_spot, arg1_spot
         else:
@@ -77,7 +59,6 @@ class GeneralCmp(ILCommand):
 
         arg1_spot, arg2_spot = self.fix_both_literal_or_mem(spotmap[self.arg1], spotmap[self.arg2], regs, get_reg,
                                                             asm_code)
-        arg1_spot, arg2_spot = self.fix_either_literal64(arg1_spot, arg2_spot, regs, get_reg, asm_code)
         arg1_spot, arg2_spot = self.fix_literal_wrong_order(arg1_spot, arg2_spot)
 
         arg_size = self.arg1.ctype.size
@@ -99,7 +80,7 @@ class GeneralCmp(ILCommand):
 
 
 class NotEqualCmp(GeneralCmp):
-    """NotEqualCmp - checks whether arg1 and arg2 are not equal.
+    """ NotEqualCmp - checks whether arg1 and arg2 are not equal.
     IL value output must have int type. arg1, arg2 must all have the same type.
     """
     signed_cmp_cmd = asm_cmds.Jne
@@ -107,7 +88,7 @@ class NotEqualCmp(GeneralCmp):
 
 
 class EqualCmp(GeneralCmp):
-    """EqualCmp - checks whether arg1 and arg2 are equal. IL value output must have int type. arg1, arg2 must all have
+    """ EqualCmp - checks whether arg1 and arg2 are equal. IL value output must have int type. arg1, arg2 must all have
     the same type.
     """
     signed_cmp_cmd = asm_cmds.Je

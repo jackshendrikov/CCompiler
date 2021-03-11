@@ -8,25 +8,25 @@ class ErrorCollector:
     """
 
     def __init__(self):
-        """Initialize the ErrorCollector with no issues to report."""
+        """ Initialize the ErrorCollector with no issues to report """
         self.issues = []
 
     def add(self, issue):
-        """Add the given error or warning (CompilerError) to list of errors."""
+        """ Add the given error or warning (CompilerError) to list of errors """
         self.issues.append(issue)
         self.issues.sort()
 
     def ok(self):
-        """Return True if there are no errors."""
+        """ Return True if there are no errors """
         return not any(not issue.warning for issue in self.issues)
 
     def show(self):
-        """Display all warnings and errors."""
+        """ Display all warnings and errors """
         for issue in self.issues:
             print(issue)
 
     def clear(self):
-        """Clear all warnings and errors. Intended only for testing use."""
+        """ Clear all warnings and errors. Intended only for testing use """
         self.issues = []
 
 
@@ -43,14 +43,14 @@ class Position:
     """
 
     def __init__(self, file, line, col, full_line):
-        """Initialize Position object."""
+        """ Initialize Position object """
         self.file = file
         self.line = line
         self.col = col
         self.full_line = full_line
 
     def __add__(self, other):
-        """Increment Position column by one."""
+        """ Increment Position column by one """
         return Position(self.file, self.line, self.col + 1, self.full_line)
 
 
@@ -61,12 +61,12 @@ class Range:
     """
 
     def __init__(self, start, end=None):
-        """Initialize Range objects."""
+        """ Initialize Range objects """
         self.start = start
         self.end = end or start
 
     def __add__(self, other):
-        """Add Range objects by concatenating their ranges."""
+        """ Add Range objects by concatenating their ranges """
         return Range(self.start, other.end)
 
 
@@ -88,7 +88,7 @@ class CompilerError(Exception):
         self.warning = warning
 
     def __str__(self):
-        """Return a pretty-printable statement of the error. Also includes the line on which the error occurred."""
+        """ Return a pretty-printable statement of the error. Also includes the line on which the error occurred """
         error_color = "\x1B[31m"
         warn_color = "\x1B[33m"
         reset_color = "\x1B[0m"
@@ -125,7 +125,7 @@ class CompilerError(Exception):
                     f"{reset_color} {self.descr}")
 
     def __lt__(self, other):
-        """Provides sort order for printing errors."""
+        """ Provides sort order for printing errors """
 
         # everything without a range comes before everything with range
         if not self.span: return bool(other.range)

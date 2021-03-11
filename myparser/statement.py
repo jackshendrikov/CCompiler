@@ -1,4 +1,4 @@
-"""Parser logic that parses statement nodes."""
+""" Parser logic that parses statement nodes """
 
 from myparser.utils import (add_range, log_error, match_token, token_is, ParserError)
 from myparser.declaration import parse_declaration
@@ -10,8 +10,8 @@ import token_kinds
 
 @add_range
 def parse_statement(index):
-    """Parse a statement. Try each possible type of statement, catching/logging exceptions upon parse failures. On the
-    last try, raise the exception on to the caller.
+    """ Parse a statement. Try each possible type of statement, catching/logging exceptions upon parse failures.
+    On the last try, raise the exception on to the caller.
     """
     for func in (parse_compound_statement, parse_return, parse_break, parse_continue, parse_if_statement,
                  parse_while_statement, parse_do_while_statement, parse_for_statement):
@@ -23,8 +23,8 @@ def parse_statement(index):
 
 @add_range
 def parse_compound_statement(index):
-    """Parse a compound statement. A compound statement is a collection of several statements/declarations, enclosed in
-    braces.
+    """ Parse a compound statement.
+    A compound statement is a collection of several statements/declarations, enclosed in braces.
     """
     p.symbols.new_scope()
     index = match_token(index, token_kinds.open_brack, ParserError.GOT)
@@ -52,7 +52,7 @@ def parse_compound_statement(index):
 
 @add_range
 def parse_return(index):
-    """Parse a return statement.
+    """ Parse a return statement.
         Ex: return 5;
     """
     index = match_token(index, token_kinds.return_kw, ParserError.GOT)
@@ -67,7 +67,7 @@ def parse_return(index):
 
 @add_range
 def parse_break(index):
-    """Parse a break statement."""
+    """ Parse a break statement """
     index = match_token(index, token_kinds.break_kw, ParserError.GOT)
     index = match_token(index, token_kinds.semicolon, ParserError.AFTER)
     return nodes.Break(), index
@@ -75,7 +75,7 @@ def parse_break(index):
 
 @add_range
 def parse_continue(index):
-    """Parse a continue statement."""
+    """ Parse a continue statement """
     index = match_token(index, token_kinds.continue_kw, ParserError.GOT)
     index = match_token(index, token_kinds.semicolon, ParserError.AFTER)
     return nodes.Continue(), index
@@ -83,7 +83,7 @@ def parse_continue(index):
 
 @add_range
 def parse_if_statement(index):
-    """Parse an if statement."""
+    """ Parse an if statement """
 
     index = match_token(index, token_kinds.if_kw, ParserError.GOT)
     index = match_token(index, token_kinds.open_paren, ParserError.AFTER)
@@ -104,7 +104,7 @@ def parse_if_statement(index):
 
 @add_range
 def parse_while_statement(index):
-    """Parse a while statement."""
+    """ Parse a while statement """
     index = match_token(index, token_kinds.while_kw, ParserError.GOT)
     index = match_token(index, token_kinds.open_paren, ParserError.AFTER)
     conditional, index = parse_expression(index)
@@ -116,7 +116,7 @@ def parse_while_statement(index):
 
 @add_range
 def parse_do_while_statement(index):
-    """Parse a do-while statement."""
+    """ Parse a do-while statement """
     index = match_token(index, token_kinds.do_kw, ParserError.GOT)
     statement, index = parse_statement(index)
     index = match_token(index, token_kinds.while_kw, ParserError.GOT)
@@ -130,7 +130,7 @@ def parse_do_while_statement(index):
 
 @add_range
 def parse_for_statement(index):
-    """Parse a for statement."""
+    """ Parse a for statement """
     index = match_token(index, token_kinds.for_kw, ParserError.GOT)
     index = match_token(index, token_kinds.open_paren, ParserError.AFTER)
 

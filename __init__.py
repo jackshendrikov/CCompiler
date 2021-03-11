@@ -1,1 +1,1 @@
-"""Package for compiler files."""
+""" Package for compiler files """
